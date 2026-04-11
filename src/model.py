@@ -1,12 +1,20 @@
 import copy
+from dataclasses import dataclass
 
 import numpy as np
 import torch
 import torch.nn as nn
 
 
+@dataclass(frozen=True)
+class ModelConfig:
+    input_size: int
+    hidden_size: int
+    num_classes: int
+
+
 class SimpleModel(nn.Module):
-    """A lightweight neural network used in the FL simulation."""
+    """A configurable lightweight neural network used in the FL simulation."""
 
     def __init__(self, input_size=10, hidden_size=32, num_classes=2):
         super().__init__()
@@ -19,6 +27,14 @@ class SimpleModel(nn.Module):
         x = self.relu(x)
         x = self.fc2(x)
         return x
+
+
+def build_model(model_config):
+    return SimpleModel(
+        input_size=model_config.input_size,
+        hidden_size=model_config.hidden_size,
+        num_classes=model_config.num_classes,
+    )
 
 
 def get_model_weights(model):
@@ -55,3 +71,7 @@ def weighted_average(weight_sets, coefficients):
         for layer_index, layer in enumerate(weight_set):
             averaged[layer_index] += layer * coefficient
     return averaged
+
+
+def count_model_scalars(weights):
+    return int(sum(layer.size for layer in weights))

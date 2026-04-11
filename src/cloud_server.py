@@ -2,20 +2,22 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from model import SimpleModel, get_model_weights, set_model_weights, weighted_average
+from model import build_model, get_model_weights, set_model_weights, weighted_average
 
 
 class CloudServer:
-    def __init__(self):
-        self.global_model = SimpleModel()
+    def __init__(self, model_config):
+        self.model_config = model_config
+        self.global_model = build_model(model_config)
         self.global_weights = get_model_weights(self.global_model)
 
-    def hierarchical_aggregation(self, edge_updates):
+    def hierarchical_aggregation(self, edge_updates, verbose=True):
         """Combine edge models into the final global model using sample weighting."""
         if not edge_updates:
             return self.global_weights
 
-        print("\n[CLOUD LAYER] Performing final global aggregation across all edge servers...")
+        if verbose:
+            print("\n[CLOUD LAYER] Performing final global aggregation across all edge servers...")
 
         total_samples = sum(update["num_samples"] for update in edge_updates)
         coefficients = [update["num_samples"] / total_samples for update in edge_updates]
@@ -24,35 +26,45 @@ class CloudServer:
         self.global_weights = weighted_average(edge_weight_sets, coefficients)
         set_model_weights(self.global_model, self.global_weights)
 
-        avg_edge_accuracy = np.mean([update["avg_accuracy"] for update in edge_updates])
-        avg_edge_loss = np.mean([update["avg_loss"] for update in edge_updates])
-        print(
-            f"[CLOUD LAYER] Global model updated successfully. "
-            f"Edge Avg Accuracy={avg_edge_accuracy:.4f}, Edge Avg Loss={avg_edge_loss:.4f}"
-        )
+        if verbose:
+            avg_edge_accuracy = np.mean([update["avg_accuracy"] for update in edge_updates])
+            avg_edge_loss = np.mean([update["avg_loss"] for update in edge_updates])
+            print(
+                f"[CLOUD LAYER] Global model updated successfully. "
+                f"Edge Avg Accuracy={avg_edge_accuracy:.4f}, Edge Avg Loss={avg_edge_loss:.4f}"
+            )
         return self.global_weights
 
-    def evaluate_global_model(self, client_groups):
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
+    def flat_fedavg_aggregation(self, client_updates, verbose=True):
+        """Traditional FedAvg over selected client models."""
+        if not client_updates:
+            return self.global_weights
+
+        if verbose:
+            print("\n[CLOUD LAYER] Performing flat FedAvg aggregation across selected clients...")
+
+        total_samples = sum(update["num_samples"] for update in client_updates)
+        coefficients = [update["num_samples"] / total_samples for update in client_updates]
+        weight_sets = [update["weights"] for update in client_updates]
+
+        self.global_weights = weighted_average(weight_sets, coefficients)
+        set_model_weights(self.global_model, self.global_weights)
+        return self.global_weights
+
+    def evaluate_global_model(self, evaluation_x, evaluation_y):
+        total_samples = len(evaluation_y)
 
         set_model_weights(self.global_model, self.global_weights)
         self.global_model.eval()
 
         with torch.no_grad():
-            for group in client_groups:
-                for client in group:
-                    outputs = self.global_model(client.data_x)
-                    loss = nn.CrossEntropyLoss()(outputs, client.data_y)
-                    predictions = outputs.argmax(dim=1)
-
-                    sample_count = len(client.data_y)
-                    total_loss += loss.item() * sample_count
-                    total_correct += int((predictions == client.data_y).sum().item())
-                    total_samples += sample_count
+            outputs = self.global_model(evaluation_x)
+            loss = nn.CrossEntropyLoss()(outputs, evaluation_y).item()
+            predictions = outputs.argmax(dim=1)
+            accuracy = (predictions == evaluation_y).float().mean().item()
 
         return {
-            "loss": total_loss / total_samples,
-            "accuracy": total_correct / total_samples,
+            "loss": loss,
+            "accuracy": accuracy,
+            "num_samples": total_samples,
         }

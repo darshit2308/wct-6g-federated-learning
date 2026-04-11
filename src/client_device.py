@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch.optim as optim
 
 from model import (
-    SimpleModel,
+    apply_weight_delta,
+    build_model,
     clone_weights,
     compute_weight_delta,
     get_model_weights,
@@ -13,35 +14,42 @@ from model import (
 
 
 class DeviceClient:
-    def __init__(self, client_id, battery_level, network_latency, data_size, seed):
+    def __init__(
+        self,
+        client_id,
+        battery_level,
+        network_latency,
+        train_x,
+        train_y,
+        eval_x,
+        eval_y,
+        seed,
+        model_config,
+        reliability_score=1.0,
+    ):
         self.client_id = client_id
         self.battery_level = battery_level
         self.network_latency = network_latency
-        self.data_size = data_size
         self.seed = seed
+        self.model_config = model_config
+        self.reliability_score = reliability_score
 
-        self.local_model = SimpleModel()
+        self.train_x = train_x.float()
+        self.train_y = train_y.long()
+        self.eval_x = eval_x.float()
+        self.eval_y = eval_y.long()
+
+        self.data_size = len(self.train_y)
+        self.selection_count = 0
+        self.rounds_since_last_selection = 3
+        self.local_model = build_model(model_config)
         self._rng = np.random.default_rng(seed)
-        self.data_x, self.data_y = self._build_local_dataset()
-
-    def _build_local_dataset(self):
-        feature_count = 10
-        center = self._rng.normal(0.0, 1.0, size=feature_count)
-        data_x = self._rng.normal(loc=center, scale=1.0, size=(self.data_size, feature_count))
-
-        signal = (
-            0.9 * data_x[:, 0]
-            - 0.6 * data_x[:, 1]
-            + 0.4 * data_x[:, 2]
-            + 0.3 * data_x[:, 3]
-            + self._rng.normal(0.0, 0.8, size=self.data_size)
-        )
-        data_y = (signal > 0).astype(np.int64)
-
-        return (
-            torch.tensor(data_x, dtype=torch.float32),
-            torch.tensor(data_y, dtype=torch.long),
-        )
+        (
+            self._data_diversity_score,
+            self._label_distribution,
+            self._class_presence_vector,
+        ) = self._compute_data_profile()
+        self.historical_utility = float(np.clip(0.45 + 0.35 * self._data_diversity_score, 0.0, 1.0))
 
     def simulate_round_conditions(self):
         battery_drain = self._rng.integers(1, 5)
@@ -49,57 +57,193 @@ class DeviceClient:
 
         self.battery_level = int(np.clip(self.battery_level - battery_drain, 15, 100))
         self.network_latency = int(np.clip(self.network_latency + latency_shift, 5, 200))
+        self.rounds_since_last_selection += 1
 
-    def quality_score(self):
+    def selection_freshness_score(self):
+        return float(min(self.rounds_since_last_selection / 4.0, 1.0))
+
+    def system_quality_score(self):
         battery_term = self.battery_level / 100.0
         latency_term = max(0.0, 1.0 - (self.network_latency / 200.0))
         data_term = min(self.data_size / 900.0, 1.0)
-        return 0.40 * battery_term + 0.25 * latency_term + 0.35 * data_term
+        return (
+            0.35 * battery_term
+            + 0.20 * latency_term
+            + 0.30 * data_term
+            + 0.15 * self.reliability_score
+        )
 
-    def train_local_model(self, global_weights, epochs=2, lr=0.02):
-        """Train on local data starting from the current global model."""
+    def quality_score(self):
+        return (
+            0.30 * self.system_quality_score()
+            + 0.25 * self.data_diversity_score()
+            + 0.25 * self.historical_utility
+            + 0.20 * self.reliability_score
+        )
+
+    def data_diversity_score(self):
+        return self._data_diversity_score
+
+    def label_distribution(self):
+        return self._label_distribution
+
+    def class_presence_vector(self):
+        return self._class_presence_vector
+
+    def _compute_data_profile(self):
+        labels = self.train_y.detach().cpu().numpy()
+        class_counts = np.bincount(labels, minlength=self.model_config.num_classes).astype(float)
+        class_probs = class_counts / max(class_counts.sum(), 1.0)
+        non_zero = class_probs[class_probs > 0]
+        entropy = -np.sum(non_zero * np.log(non_zero))
+        max_entropy = np.log(self.model_config.num_classes) if self.model_config.num_classes > 1 else 1.0
+        entropy_score = float(entropy / max(max_entropy, 1e-8))
+        feature_variance = float(torch.var(self.train_x).item())
+        variance_score = float(np.tanh(feature_variance))
+        diversity_score = 0.7 * entropy_score + 0.3 * variance_score
+        class_presence = (class_counts > 0).astype(float)
+        return diversity_score, class_probs, class_presence
+
+    def mark_selected(self):
+        self.selection_count += 1
+        self.rounds_since_last_selection = 0
+
+    def update_after_round(self, update_metrics, accepted):
+        learning_signal = (
+            0.45 * update_metrics["accuracy"]
+            + 0.25 * float(np.exp(-update_metrics["loss"]))
+            + 0.20 * self.data_diversity_score()
+            + 0.10 * self.system_quality_score()
+        )
+        if accepted:
+            reliability_target = 0.55 + 0.45 * update_metrics["accuracy"]
+            self.historical_utility = float(
+                np.clip(0.7 * self.historical_utility + 0.3 * learning_signal, 0.05, 1.0)
+            )
+            self.reliability_score = float(
+                np.clip(0.8 * self.reliability_score + 0.2 * reliability_target, 0.2, 1.0)
+            )
+        else:
+            penalized_signal = max(0.05, 0.55 * learning_signal)
+            self.historical_utility = float(
+                np.clip(0.82 * self.historical_utility + 0.18 * penalized_signal, 0.05, 1.0)
+            )
+            self.reliability_score = float(np.clip(self.reliability_score * 0.82, 0.15, 1.0))
+
+    def _apply_attack(self, delta, attack_type, attack_scale):
+        if attack_type == "sign_flip":
+            return [-attack_scale * layer for layer in delta]
+        if attack_type == "gaussian_noise":
+            attacked_delta = []
+            for layer in delta:
+                noise = self._rng.normal(loc=0.0, scale=attack_scale, size=layer.shape)
+                attacked_delta.append(layer + noise.astype(layer.dtype))
+            return attacked_delta
+        return delta
+
+    def train_local_model(
+        self,
+        global_weights,
+        epochs=2,
+        lr=0.02,
+        attack_config=None,
+        verbose=True,
+    ):
+        """Train locally and return a transmitted update."""
         set_model_weights(self.local_model, global_weights)
         base_weights = clone_weights(global_weights)
 
-        print(
-            f"   [Device {self.client_id}] Training locally on {self.data_size} samples "
-            f"(battery={self.battery_level}%, latency={self.network_latency}ms)..."
-        )
+        if verbose:
+            print(
+                f"   [Device {self.client_id}] Training on {self.data_size} samples "
+                f"(battery={self.battery_level}%, latency={self.network_latency}ms)..."
+            )
 
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(self.local_model.parameters(), lr=lr)
+        optimizer = optim.Adam(self.local_model.parameters(), lr=lr)
+        batch_size = int(min(64, max(16, self.data_size // 4)))
 
         self.local_model.train()
         for _ in range(epochs):
-            optimizer.zero_grad()
-            outputs = self.local_model(self.data_x)
-            loss = criterion(outputs, self.data_y)
-            loss.backward()
-            optimizer.step()
+            permutation = torch.randperm(self.data_size)
+            for batch_start in range(0, self.data_size, batch_size):
+                batch_indices = permutation[batch_start : batch_start + batch_size]
+                batch_x = self.train_x[batch_indices]
+                batch_y = self.train_y[batch_indices]
+
+                optimizer.zero_grad()
+                outputs = self.local_model(batch_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
 
         updated_weights = get_model_weights(self.local_model)
         delta = compute_weight_delta(base_weights, updated_weights)
+
+        is_adversarial = bool(attack_config and attack_config.get("enabled"))
+        if is_adversarial:
+            delta = self._apply_attack(
+                delta,
+                attack_type=attack_config.get("attack_type", "sign_flip"),
+                attack_scale=attack_config.get("attack_scale", 5.0),
+            )
+            updated_weights = apply_weight_delta(base_weights, delta)
+
         metrics = self.evaluate(weights=updated_weights)
+        learning_quality = (
+            0.45 * metrics["accuracy"]
+            + 0.25 * float(np.exp(-metrics["loss"]))
+            + 0.20 * self.data_diversity_score()
+            + 0.10 * self.historical_utility
+        )
+        transmitted_quality = (
+            0.30 * self.system_quality_score()
+            + 0.45 * learning_quality
+            + 0.15 * self.data_diversity_score()
+            + 0.10 * self.reliability_score
+        )
+        delta_norm = float(
+            np.linalg.norm(np.concatenate([layer.reshape(-1) for layer in delta]))
+        )
+        upload_scalars = int(sum(layer.size for layer in delta))
+        energy_proxy = (
+            (upload_scalars / 1000.0)
+            * (1.0 + self.network_latency / 100.0)
+            * (1.1 - self.battery_level / 100.0)
+            * (1.0 + delta_norm)
+        )
 
         return {
             "client_id": self.client_id,
             "weights": updated_weights,
             "delta": delta,
             "num_samples": self.data_size,
-            "quality_score": self.quality_score(),
+            "quality_score": float(transmitted_quality),
+            "utility_score": float(learning_quality),
             "loss": metrics["loss"],
             "accuracy": metrics["accuracy"],
+            "latency_ms": float(self.network_latency),
+            "energy_proxy": float(energy_proxy),
+            "upload_scalars": upload_scalars,
+            "battery_level": self.battery_level,
+            "is_adversarial": is_adversarial,
+            "reliability_score": self.reliability_score,
         }
 
-    def evaluate(self, weights=None):
+    def evaluate(self, weights=None, split="eval"):
         if weights is not None:
             set_model_weights(self.local_model, weights)
 
+        if split == "train":
+            data_x, data_y = self.train_x, self.train_y
+        else:
+            data_x, data_y = self.eval_x, self.eval_y
+
         self.local_model.eval()
         with torch.no_grad():
-            outputs = self.local_model(self.data_x)
-            loss = nn.CrossEntropyLoss()(outputs, self.data_y).item()
+            outputs = self.local_model(data_x)
+            loss = nn.CrossEntropyLoss()(outputs, data_y).item()
             predictions = outputs.argmax(dim=1)
-            accuracy = (predictions == self.data_y).float().mean().item()
+            accuracy = (predictions == data_y).float().mean().item()
 
         return {"loss": loss, "accuracy": accuracy}

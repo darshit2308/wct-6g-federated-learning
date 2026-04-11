@@ -1,120 +1,118 @@
+import argparse
 import os
-import random
 import sys
-
-import numpy as np
-import torch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
-from client_device import DeviceClient
-from cloud_server import CloudServer
-from edge_server import EdgeServer
+from experiment_runner import (  # noqa: E402
+    DEFAULT_METHODS,
+    ExperimentConfig,
+    format_summary_table,
+    run_benchmark_suite,
+    run_experiment,
+)
 
 
-SEED = 42
-NUM_CLIENTS = 20
-NUM_EDGES = 2
-CLIENTS_PER_EDGE = NUM_CLIENTS // NUM_EDGES
-CLIENTS_PER_ROUND = 4
-NUM_ROUNDS = 5
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Research-grade benchmark runner for hierarchical FL over 6G-style edge networks."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["suite", "single"],
+        default="suite",
+        help="Run the full benchmark suite or a single method.",
+    )
+    parser.add_argument(
+        "--method",
+        default="proposed",
+        choices=sorted(DEFAULT_METHODS.keys()),
+        help="Method to use in single-run mode.",
+    )
+    parser.add_argument(
+        "--methods",
+        default="proposed,flat_fedavg_random,hierarchical_random_fedavg,hierarchical_intelligent_fedavg,hierarchical_intelligent_no_filter",
+        help="Comma-separated list of methods for suite mode.",
+    )
+    parser.add_argument(
+        "--dataset",
+        default="synthetic",
+        choices=["synthetic", "digits", "mnist"],
+        help="Dataset to use. digits is the strongest no-download benchmark. mnist requires torchvision data access.",
+    )
+    parser.add_argument("--download-dataset", action="store_true", help="Allow dataset downloads when supported.")
+    parser.add_argument("--dataset-root", default="data", help="Directory for datasets.")
+    parser.add_argument("--num-clients", type=int, default=20)
+    parser.add_argument("--num-edges", type=int, default=2)
+    parser.add_argument("--clients-per-round", type=int, default=4)
+    parser.add_argument("--num-rounds", type=int, default=8)
+    parser.add_argument("--local-epochs", type=int, default=2)
+    parser.add_argument("--learning-rate", type=float, default=0.02)
+    parser.add_argument("--hidden-size", type=int, default=32)
+    parser.add_argument(
+        "--seeds",
+        default="42,52,62",
+        help="Comma-separated seeds used in suite mode.",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Seed used in single-run mode.")
+    parser.add_argument("--attack-fraction", type=float, default=0.0, help="Fraction of selected clients that behave adversarially.")
+    parser.add_argument("--attack-type", choices=["sign_flip", "gaussian_noise"], default="sign_flip")
+    parser.add_argument("--attack-scale", type=float, default=5.0)
+    parser.add_argument("--results-dir", default="results")
+    parser.add_argument("--quiet", action="store_true", help="Reduce per-round logging.")
+    return parser.parse_args()
 
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-
-def create_clients():
-    clients = []
-    for client_index in range(NUM_CLIENTS):
-        battery_level = random.randint(45, 100)
-        network_latency = random.randint(10, 120)
-        data_size = random.randint(240, 900)
-
-        clients.append(
-            DeviceClient(
-                client_id=f"C{client_index + 1}",
-                battery_level=battery_level,
-                network_latency=network_latency,
-                data_size=data_size,
-                seed=SEED + client_index,
-            )
-        )
-    return clients
-
-
-def split_clients_by_edge(clients):
-    return [
-        clients[index : index + CLIENTS_PER_EDGE]
-        for index in range(0, len(clients), CLIENTS_PER_EDGE)
-    ]
-
-
-def run_simulation():
-    set_seed(SEED)
-    print("=== Starting 6G Hierarchical FL Simulation ===")
-    print(f"Seed: {SEED}")
-
-    cloud = CloudServer()
-    edges = [
-        EdgeServer(edge_id="E1_North", random_state=SEED + 101),
-        EdgeServer(edge_id="E2_South", random_state=SEED + 202),
-    ]
-
-    client_groups = split_clients_by_edge(create_clients())
-
-    global_weights = cloud.global_weights
-    round_history = []
-    for round_num in range(1, NUM_ROUNDS + 1):
-        print("\n==========================================")
-        print(f"          STARTING ROUND {round_num}")
-        print("==========================================")
-
-        edge_updates = []
-        for edge, edge_clients in zip(edges, client_groups):
-            edge_summary = edge.process_round(
-                clients=edge_clients,
-                incoming_global_weights=global_weights,
-                required_clients=CLIENTS_PER_ROUND,
-                round_num=round_num,
-            )
-            if edge_summary is not None:
-                edge_updates.append(edge_summary)
-
-        global_weights = cloud.hierarchical_aggregation(edge_updates)
-        global_metrics = cloud.evaluate_global_model(client_groups)
-
-        print(
-            f"[ROUND {round_num}] Global Accuracy = {global_metrics['accuracy']:.4f}, "
-            f"Global Loss = {global_metrics['loss']:.4f}"
-        )
-        round_history.append(
-            {
-                "round": round_num,
-                "accuracy": global_metrics["accuracy"],
-                "loss": global_metrics["loss"],
-            }
-        )
-        print(f"Round {round_num} Complete. Global model ready for next iteration.")
-
-    print("\n==========================================")
-    print("            FINAL SUMMARY")
-    print("==========================================")
-    for metrics in round_history:
-        print(
-            f"Round {metrics['round']}: "
-            f"accuracy={metrics['accuracy']:.4f}, loss={metrics['loss']:.4f}"
-        )
-
-    accuracy_gain = round_history[-1]["accuracy"] - round_history[0]["accuracy"]
-    loss_drop = round_history[0]["loss"] - round_history[-1]["loss"]
-    print(
-        f"\nOverall improvement: accuracy +{accuracy_gain:.4f}, "
-        f"loss -{loss_drop:.4f}"
+def build_config(args, seed):
+    return ExperimentConfig(
+        dataset_name=args.dataset,
+        dataset_root=args.dataset_root,
+        download_dataset=args.download_dataset,
+        num_clients=args.num_clients,
+        num_edges=args.num_edges,
+        clients_per_round=args.clients_per_round,
+        num_rounds=args.num_rounds,
+        local_epochs=args.local_epochs,
+        learning_rate=args.learning_rate,
+        hidden_size=args.hidden_size,
+        seed=seed,
+        attack_fraction=args.attack_fraction,
+        attack_type=args.attack_type,
+        attack_scale=args.attack_scale,
+        results_dir=args.results_dir,
+        quiet=args.quiet,
     )
 
 
+def main():
+    args = parse_args()
+
+    if args.mode == "single":
+        config = build_config(args, seed=args.seed)
+        result = run_experiment(config, DEFAULT_METHODS[args.method])
+        summary = result["summary"]
+        print("\n=== SINGLE RUN SUMMARY ===")
+        print(f"Method: {summary['method']}")
+        print(f"Dataset: {summary['dataset']}")
+        print(f"Final Accuracy: {summary['final_accuracy']:.4f}")
+        print(f"Final Loss: {summary['final_loss']:.4f}")
+        print(f"Accuracy Gain: {summary['accuracy_gain']:.4f}")
+        print(f"Cloud Uploads: {summary['total_cloud_uploads']}")
+        print(f"Energy Proxy: {summary['total_energy_proxy']:.2f}")
+        print(f"Selection Fairness: {summary['final_selection_fairness']:.4f}")
+        return
+
+    method_names = [method.strip() for method in args.methods.split(",") if method.strip()]
+    seeds = [int(seed.strip()) for seed in args.seeds.split(",") if seed.strip()]
+    config = build_config(args, seed=seeds[0] if seeds else args.seed)
+    suite_result = run_benchmark_suite(config, method_names=method_names, seeds=seeds)
+
+    print("\n=== BENCHMARK SUMMARY ===")
+    print(format_summary_table(suite_result["aggregated_summaries"]))
+    print("\nExported files:")
+    for label, path in suite_result["export_paths"].items():
+        print(f" - {label}: {path}")
+
+
 if __name__ == "__main__":
-    run_simulation()
+    main()
