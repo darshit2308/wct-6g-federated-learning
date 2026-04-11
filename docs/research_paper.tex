@@ -1,0 +1,352 @@
+% Compile with: pdflatex research_paper.tex
+% PDF build was not executed in this shell because pdflatex is not installed here.
+% Replace the author names, affiliation, and email addresses before submission.
+% Suggested title is original and intentionally different from the cited base paper.
+
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage{multirow}
+
+\begin{document}
+
+\title{Adaptive Hierarchical Federated Learning for Wireless 6G Connectivity Supporting Massive Devices and Critical Services}
+
+\author{
+\IEEEauthorblockN{Author Name 1, Author Name 2, Author Name 3}
+\IEEEauthorblockA{
+Department of Computer Science and Engineering \\
+University Name, City, Country \\
+email1@example.com, email2@example.com, email3@example.com
+}
+}
+
+\maketitle
+
+\begin{abstract}
+Sixth-generation (6G) wireless systems are expected to support both massive device populations and services with stringent reliability and timeliness requirements. These demands create pressure on the learning, communication, and orchestration layers of future edge-native networks. Motivated by recent 6G connectivity research, this paper presents an implementation-oriented study of an adaptive hierarchical federated learning (FL) framework designed for a three-tier device-edge-cloud architecture. The proposed framework combines intelligent edge-side client selection, quality-aware weighted aggregation, conservative anomaly screening, and global model synchronization across rounds. Unlike flat FL, the cloud does not aggregate every selected client update directly; instead, regional edge servers perform intermediate aggregation and transmit only validated regional models. A reproducible simulation with 20 clients, 2 edge servers, 4 selected clients per edge per round, and 5 communication rounds is implemented in Python using PyTorch and scikit-learn. Under a seed-controlled setup, the global model accuracy improves monotonically from 0.4214 to 0.4740, while the loss decreases from 0.7385 to 0.7138. Under the same participation budget, the hierarchical design reduces cloud-facing model uploads from 8 selected client updates to 2 edge updates per round. Although the current prototype uses synthetic data and simplified wireless proxies, the results demonstrate that hierarchical edge intelligence is a technically credible mechanism for scalable 6G learning orchestration under massive connectivity conditions.
+\end{abstract}
+
+\begin{IEEEkeywords}
+6G, federated learning, edge intelligence, hierarchical aggregation, massive connectivity, critical services, client selection, wireless networks
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{T}{he} evolution from 5G to 6G broadens the design objective of wireless networks beyond mobile broadband toward simultaneous support for extremely dense device populations and highly dependable services. Recent work by Kal{\o}r \emph{et al.} emphasizes that future 6G systems must jointly address massive connectivity, mixed-criticality traffic, and distributed intelligence, with decentralized learning and inference acting as important drivers of closed-loop traffic patterns and edge-native coordination \cite{kalor2025wireless6g}. This observation is especially relevant in Internet-of-Things (IoT), cyber-physical, industrial, and autonomous environments, where a large number of devices must collaborate without violating privacy or overwhelming backhaul resources.
+
+Federated learning (FL) offers a promising solution because it keeps raw data local and exchanges only model information \cite{mcmahan2017fedavg}. However, classical FL also inherits several practical problems in wireless environments: not all clients are equally reliable, communication conditions vary significantly, full participation is expensive, and the cloud becomes a bottleneck when every device communicates globally in each round \cite{kairouz2021advances,amiri2020wireless,chen2021joint}. These limitations become more pronounced in 6G scenarios that mix high device density with safety-relevant services.
+
+This paper presents an implementation-driven response to that challenge. Instead of treating FL as a flat device-to-cloud procedure, we build a hierarchical device-edge-cloud workflow in which edge servers perform the intermediate intelligence needed to make FL more practical under massive connectivity. The goal is not to reproduce the entire communication-theoretic scope of \cite{kalor2025wireless6g}, but to develop and evaluate a concrete software prototype for one of its most actionable implications: distributed learning orchestration at the network edge.
+
+It is also important to state the privacy scope precisely. The present system improves privacy relative to centralized learning by keeping raw data on devices and exchanging only model information. However, it does not yet implement formal privacy-enhancement mechanisms such as differential privacy, secure aggregation, or cryptographic protection of model updates.
+
+The main contributions of this paper are as follows:
+\begin{itemize}
+    \item We design a three-tier adaptive hierarchical FL framework in which device clients train locally, edge servers perform intelligent client selection and regional aggregation, and the cloud performs final global synchronization.
+    \item We formulate a lightweight edge-side selection mechanism based on device battery level, latency, and local data size, and combine it with quality-aware aggregation and robust anomaly screening.
+    \item We implement the full pipeline in Python using PyTorch, NumPy, and scikit-learn, and release the code as an artifact for reproducibility \cite{darshit2026repo}.
+    \item We report a reproducible simulation showing stable round-wise convergence, reduced cloud-facing aggregation load, and a conservative but functional edge-security behavior.
+\end{itemize}
+
+The remainder of the paper is organized as follows. Section II discusses the motivation and related work. Section III presents the system model. Section IV details the proposed adaptive hierarchical FL framework. Section V describes the implementation and experimental setup. Section VI discusses the observed results. Section VII outlines limitations and future work, and Section VIII concludes the paper.
+
+\section{Background, Motivation, and Related Work}
+\subsection{6G Connectivity Perspective}
+The base paper in \cite{kalor2025wireless6g} argues that 6G must be understood not only as a faster wireless interface, but as a system-level response to two intertwined demands: connectivity for massive numbers of devices and connectivity for critical services. Massive connectivity involves scaling beyond conventional mobile-user assumptions, while critical services require extremely reliable and timely operation under diverse timing semantics. The same work further notes that distributed and decentralized learning can reshape traffic patterns by increasing the amount of closed-loop and symmetric communication in future networks \cite{kalor2025wireless6g}. This creates a strong motivation for edge-resident intelligence rather than purely centralized coordination.
+
+\subsection{Federated Learning Over Wireless Networks}
+FedAvg introduced the modern FL paradigm by showing that decentralized data holders can collaboratively train a global model using iterative local updates and centralized averaging \cite{mcmahan2017fedavg}. Since then, a large body of work has examined communication, privacy, optimization, and systems challenges in FL \cite{kairouz2021advances}. Within wireless networking, research has addressed fading-channel effects, over-the-air aggregation, resource allocation, convergence under limited bandwidth, and energy-aware participation \cite{amiri2020wireless,chen2021joint,yang2021energy}.
+
+Despite this progress, many implementations still assume a flat topology in which a base station or cloud server directly coordinates all users. Such designs are difficult to scale to very large client populations and are also vulnerable to poor client selection. In practice, many clients may have insufficient battery, poor latency, or limited data value, yet they may still participate if the selection policy is naive. For 6G-inspired deployments, this motivates a hierarchical architecture in which edge nodes filter, select, and aggregate before the cloud performs cross-region synchronization.
+
+\subsection{Gap Addressed by This Work}
+This paper addresses a specific implementation gap. The literature provides strong theoretical motivation for 6G-compatible distributed learning, but there is still value in constructing a transparent, reproducible, end-to-end prototype that demonstrates how edge intelligence can be organized in software. Our work therefore focuses on the orchestration layer of hierarchical FL rather than on a full radio, queueing, or cross-layer simulator.
+
+\section{System Model and Problem Formulation}
+\subsection{Three-Tier Network Architecture}
+We consider a hierarchical FL system with three layers:
+\begin{itemize}
+    \item \textbf{Device layer:} A set of client devices $\mathcal{C}$ stores local data and performs local learning.
+    \item \textbf{Edge layer:} A set of edge servers $\mathcal{E}$ coordinates nearby clients, selects participants, filters suspicious updates, and performs regional aggregation.
+    \item \textbf{Cloud layer:} A global server receives regional edge models and produces the next global model.
+\end{itemize}
+
+Let $\mathcal{C}_e \subset \mathcal{C}$ denote the clients assigned to edge server $e$. At communication round $t$, the cloud holds model weights $\mathbf{w}^{(t-1)}$, which are transmitted to the edge layer and then to the selected clients. Each participating client trains locally and returns an update to its associated edge server. The edge server aggregates local updates into a regional model $\mathbf{w}_e^{(t)}$, and the cloud combines all regional models to form the next global model $\mathbf{w}^{(t)}$.
+
+\subsection{Device State Representation}
+Each client $i$ is characterized by a state vector
+\begin{equation}
+\mathbf{s}_i^{(t)} = \left[b_i^{(t)}, \ell_i^{(t)}, n_i \right],
+\end{equation}
+where $b_i^{(t)}$ denotes battery level, $\ell_i^{(t)}$ denotes network latency, and $n_i$ denotes the local data size. In the implementation, battery and latency evolve across rounds to emulate realistic variation in device conditions. Specifically,
+\begin{align}
+b_i^{(t+1)} &= \mathrm{clip}\left(b_i^{(t)} - \delta_i^{(t)}, 15, 100 \right), \\
+\ell_i^{(t+1)} &= \mathrm{clip}\left(\ell_i^{(t)} + \xi_i^{(t)}, 5, 200 \right),
+\end{align}
+where $\delta_i^{(t)}$ is an integer drain in the range $[1,4]$ and $\xi_i^{(t)}$ is a latency perturbation in the range $[-8,8]$.
+
+\subsection{Local Learning Objective}
+Each client $i$ minimizes a local empirical risk over its dataset $\mathcal{D}_i$:
+\begin{equation}
+F_i(\mathbf{w}) = \frac{1}{|\mathcal{D}_i|}\sum_{(\mathbf{x},y)\in\mathcal{D}_i} \mathcal{L}(f(\mathbf{x};\mathbf{w}), y),
+\end{equation}
+where $f(\cdot;\mathbf{w})$ is the model and $\mathcal{L}(\cdot,\cdot)$ is the cross-entropy loss. The client starts each round from the incoming global model and produces an updated model $\mathbf{w}_i^{(t)}$. Its local delta is
+\begin{equation}
+\Delta_i^{(t)} = \mathbf{w}_i^{(t)} - \mathbf{w}^{(t-1)}.
+\end{equation}
+
+\subsection{Design Objective}
+The objective of the system is not merely to optimize local training accuracy, but to do so under constraints relevant to 6G-style massive connectivity:
+\begin{itemize}
+    \item limit the number of active clients per round,
+    \item prefer clients with more favorable operating conditions,
+    \item reduce direct cloud aggregation load through edge summarization,
+    \item avoid destabilizing the global model with anomalous client updates.
+\end{itemize}
+
+\section{Proposed Adaptive Hierarchical FL Framework}
+\subsection{Overview}
+The proposed framework consists of four tightly coupled stages performed in each round:
+\begin{enumerate}
+    \item edge-side intelligent client selection,
+    \item local client training from the latest global model,
+    \item robust quality-aware edge aggregation,
+    \item sample-weighted cloud aggregation.
+\end{enumerate}
+
+\subsection{Edge-Side Intelligent Client Selection}
+Rather than selecting clients uniformly at random, each edge server ranks the clients in its region using a logistic regression model operating on standardized device-state features. This realizes the idea of ``AI-driven'' client selection in a lightweight form suitable for edge deployment, without requiring the complexity of reinforcement learning or online policy optimization in the current prototype. The probability of selecting client $i$ at round $t$ is modeled as
+\begin{equation}
+p_i^{(t)} = \sigma \left(\boldsymbol{\theta}^{\top}\tilde{\mathbf{s}}_i^{(t)} \right),
+\end{equation}
+where $\tilde{\mathbf{s}}_i^{(t)}$ is the standardized feature vector and $\sigma(\cdot)$ is the sigmoid function.
+
+To initialize the selector without requiring a pre-existing labeled dataset, the implementation first generates synthetic training samples using a rule-based device desirability score
+\begin{equation}
+\psi_i = 0.45 \frac{b_i}{100} + 0.35\left(1 - \frac{\ell_i}{200}\right) + 0.20 \frac{n_i}{1000}.
+\end{equation}
+Binary labels are then assigned using a threshold $\tau = 0.58$:
+\begin{equation}
+y_i =
+\begin{cases}
+1, & \psi_i \ge \tau, \\
+0, & \text{otherwise}.
+\end{cases}
+\end{equation}
+This creates a lightweight surrogate for edge-side admission control. In each round, the top-$K$ clients according to $p_i^{(t)}$ are selected, where $K$ is fixed by the system configuration. In the present implementation, device utility is operationalized through battery level, latency, and local data size; richer notions such as data diversity, historical reliability, and fairness-aware participation are reserved for future work.
+
+\subsection{Synthetic Non-IID Client Data}
+The current prototype uses synthetic but client-specific datasets to emulate statistical heterogeneity. For each client, feature vectors are sampled around a client-specific random center, and labels are generated using
+\begin{equation}
+y = \mathbb{I}\left(0.9x_1 - 0.6x_2 + 0.4x_3 + 0.3x_4 + \epsilon > 0 \right),
+\end{equation}
+where $\epsilon$ is Gaussian noise and $\mathbb{I}(\cdot)$ is the indicator function. This creates non-identical data distributions across clients without requiring an external dataset. In this setting, ``data importance'' is represented only through the local data size term used in client selection and aggregation. Explicit modeling of label diversity, class imbalance, or semantic informativeness is outside the current artifact.
+
+\subsection{Local Training}
+Each selected client receives the current global model and performs a small number of local training epochs using stochastic gradient descent. The model used in this study is a compact multilayer perceptron with:
+\begin{itemize}
+    \item input dimension $10$,
+    \item one hidden layer with $32$ neurons,
+    \item ReLU activation,
+    \item output dimension $2$ for binary classification.
+\end{itemize}
+The client returns its trained model, the update delta, local accuracy, local loss, and metadata used by the edge aggregator.
+
+\subsection{Quality-Aware Edge Aggregation}
+To avoid treating all clients equally, each client receives a quality score
+\begin{equation}
+q_i^{(t)} = 0.40 \frac{b_i^{(t)}}{100} + 0.25\left(1 - \frac{\ell_i^{(t)}}{200}\right) + 0.35 \min\left(\frac{n_i}{900},1\right).
+\end{equation}
+This score is combined with the local data size to define the aggregation weight
+\begin{equation}
+\alpha_i^{(t)} = \frac{n_i q_i^{(t)}}{\sum_{j \in \mathcal{S}_e^{(t)}} n_j q_j^{(t)}},
+\end{equation}
+where $\mathcal{S}_e^{(t)}$ is the set of safe selected clients associated with edge server $e$ in round $t$. The edge model is then computed as
+\begin{equation}
+\mathbf{w}_e^{(t)} = \mathbf{w}^{(t-1)} + \sum_{i \in \mathcal{S}_e^{(t)}} \alpha_i^{(t)} \Delta_i^{(t)}.
+\end{equation}
+
+\subsection{Conservative Anomaly Screening}
+Security is handled conservatively. For each client update, the edge server computes a norm over the flattened delta vector. A robust median absolute deviation (MAD) filter is then used to identify abnormal updates:
+\begin{equation}
+z_i = \frac{\left|\|\Delta_i^{(t)}\| - \mathrm{median}(\mathcal{N})\right|}{1.4826 \cdot \mathrm{MAD}(\mathcal{N})},
+\end{equation}
+where $\mathcal{N}$ denotes the set of delta norms at the edge. If $z_i$ exceeds a threshold, the update is removed. However, the filter is applied only when at least four client updates are available at the edge, which prevents unreliable decisions from very small samples.
+
+\subsection{Cloud Aggregation}
+Once each edge server produces a regional model, the cloud performs sample-weighted averaging:
+\begin{equation}
+\mathbf{w}^{(t)} = \sum_{e \in \mathcal{E}} \beta_e^{(t)} \mathbf{w}_e^{(t)},
+\end{equation}
+with
+\begin{equation}
+\beta_e^{(t)} = \frac{N_e^{(t)}}{\sum_{k \in \mathcal{E}} N_k^{(t)}},
+\end{equation}
+where $N_e^{(t)}$ is the total number of safe client samples contributing to edge $e$ in round $t$.
+
+\section{Implementation and Experimental Setup}
+\subsection{Software Stack}
+The framework is implemented in Python using PyTorch for local learning, NumPy for numerical operations, and scikit-learn for the logistic-regression-based client selector. The complete source code is publicly available in the project repository \cite{darshit2026repo}.
+
+\subsection{Simulation Configuration}
+Table \ref{tab:setup} summarizes the experimental setup used for the reproducible run reported in this paper.
+
+\begin{table}[t]
+\caption{Simulation Setup}
+\label{tab:setup}
+\centering
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.2cm}p{4.7cm}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Random seed & 42 \\
+Total number of clients & 20 \\
+Number of edge servers & 2 \\
+Clients per edge & 10 \\
+Selected clients per edge per round & 4 \\
+Total communication rounds & 5 \\
+Local epochs & 2 \\
+Optimizer & SGD \\
+Learning rate & 0.02 \\
+Client battery initialization & Random integer in $[45,100]$ \\
+Client latency initialization & Random integer in $[10,120]$ ms \\
+Client data size initialization & Random integer in $[240,900]$ samples \\
+Model architecture & MLP (10-32-2) \\
+Loss function & Cross-entropy \\
+Edge anomaly filter & MAD-based, threshold $3.5$ \\
+Minimum updates for anomaly filtering & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation Metrics}
+The main evaluation metrics are:
+\begin{itemize}
+    \item global model accuracy after each communication round,
+    \item global model loss after each communication round,
+    \item edge-level average accuracy and loss,
+    \item communication-structure implications of hierarchy, especially the reduction in cloud-facing aggregation fan-in.
+\end{itemize}
+
+This paper deliberately reports only the results of the implemented prototype rather than introducing fabricated baseline numbers. The current artifact does not yet implement a separate flat FedAvg benchmark, an explicit energy model, or a Byzantine attack injector, and those evaluations are therefore left for future work. The focus here is on demonstrating architecture-level coherence, reproducibility, and correct end-to-end hierarchical learning behavior.
+
+\section{Results and Discussion}
+\subsection{Global Convergence Behavior}
+Table \ref{tab:results} reports the round-wise global metrics obtained from the actual simulation run.
+
+\begin{table}[t]
+\caption{Round-Wise Global Results for the Reproducible Run}
+\label{tab:results}
+\centering
+\small
+\begin{tabular}{ccc}
+\toprule
+\textbf{Round} & \textbf{Global Accuracy} & \textbf{Global Loss} \\
+\midrule
+1 & 0.4214 & 0.7385 \\
+2 & 0.4330 & 0.7319 \\
+3 & 0.4460 & 0.7256 \\
+4 & 0.4585 & 0.7195 \\
+5 & 0.4740 & 0.7138 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The results show monotonic improvement across all five communication rounds. Specifically, the global accuracy improves by $0.0526$ in absolute terms, corresponding to approximately $12.5\%$ relative improvement over the initial round. The global loss decreases by $0.0247$, showing stable optimization progress despite client heterogeneity and selective participation.
+
+Although the absolute final accuracy remains modest, this should be interpreted in the correct context. The present study uses a deliberately lightweight model, synthetic non-IID data, only two local epochs, and only five communication rounds. Under those constraints, the observed monotonic trend is more important than the absolute value, because it demonstrates that the hierarchical FL loop is functioning coherently and that the global model is improving rather than oscillating or collapsing.
+
+\subsection{Behavior of Edge Intelligence}
+The edge layer plays two distinct roles: admission control and regional aggregation. In the reproducible run, the edge selectors consistently favored clients with stronger battery conditions, lower latency, and larger local datasets. This is aligned with the intended design: when participation is constrained, the network should prioritize devices that are more likely to yield useful updates at lower operational risk.
+
+The anomaly filter behaved conservatively. In most rounds, no client was removed, which is appropriate because the minimum-update requirement prevents unstable filtering. One client update was removed in Round 4 at one edge due to a pronounced delta norm, indicating that the security mechanism remains active without becoming overly aggressive.
+
+\subsection{Scalability Implications of the Hierarchical Design}
+Even in a small-scale setup, the benefits of hierarchy are easy to quantify:
+\begin{itemize}
+    \item With the same participation budget used in the prototype, a flat architecture would receive 8 selected client uploads directly at the cloud in each round.
+    \item With the proposed design, the cloud aggregates only 2 regional edge uploads per round.
+\end{itemize}
+This corresponds to a 75\% reduction in cloud-facing aggregation fan-in for the current experiment. If one compares against a hypothetical full-participation flat design with all 20 devices communicating globally, the reduction would be 90\%. Likewise, only 8 of the 20 total clients are activated per round, which means that 60\% of clients remain idle in a given round. In a real system, such selective participation could reduce unnecessary energy usage, scheduler congestion, and uplink contention.
+
+At the same time, the current implementation does not directly measure latency, communication payload size, or battery discharge. Therefore, the paper should treat those advantages as architecture-level implications rather than experimentally verified outputs of the present artifact.
+
+\subsection{Relevance to Massive Devices and Critical Services}
+The codebase does not directly model queue tails, radio-block scheduling, packet errors, information freshness, or hard latency bounds for critical-control traffic. Therefore, it should not be presented as a complete end-to-end realization of critical-service 6G networking. However, it does implement an important enabling layer for that broader vision: learning orchestration under resource variability and large client populations.
+
+From that perspective, the framework contributes in three ways:
+\begin{itemize}
+    \item it reduces direct coordination burden at the cloud,
+    \item it favors clients with operationally better conditions,
+    \item it adds a first layer of update validation before regional aggregation.
+\end{itemize}
+These properties are directly relevant to 6G-style environments in which distributed learning may coexist with mixed-criticality service classes \cite{kalor2025wireless6g}.
+
+\section{Limitations and Future Research Directions}
+This work is intentionally presented as an implementation-oriented simulation prototype, and several limitations remain.
+
+First, the data are synthetic. This improves portability and reproducibility, but it does not replace evaluation on real benchmark datasets or real device traces. Second, the client selector is a lightweight logistic-regression surrogate trained on synthetic labels rather than a policy learned from online system feedback. Third, the current system uses battery and latency as high-level proxies rather than modeling detailed wireless channels, radio resource allocation, queueing delay, or end-to-end reliability. Fourth, the evaluation reports a single reproducible configuration rather than a broad statistical sweep across seeds, baselines, and topology sizes.
+
+These limitations suggest several future extensions:
+\begin{itemize}
+    \item comparison against a flat FedAvg baseline and random client selection,
+    \item integration of real non-IID datasets,
+    \item fairness-aware client selection to avoid repeatedly favoring the same strong clients,
+    \item extension of the selection policy to include device reliability, data diversity, and historical contribution quality,
+    \item explicit communication-cost, energy, and delay modeling,
+    \item simulation of malicious clients or Byzantine attacks at larger scales,
+    \item support for asynchronous or event-driven client participation,
+    \item coupling with digital-twin or network-state prediction modules motivated by 6G critical-service requirements.
+\end{itemize}
+
+\section{Conclusion}
+This paper presented an adaptive hierarchical federated learning framework for wireless 6G connectivity scenarios involving large device populations and service-critical operational constraints. Inspired by recent 6G systems research, the proposed design combines device-edge-cloud hierarchy, intelligent client selection, quality-aware aggregation, and conservative update screening into a reproducible software prototype.
+
+The reported results show monotonic improvement of the global model across five rounds, while the hierarchical design substantially reduces cloud-facing aggregation load. Although the current implementation remains a simplified simulation, it demonstrates that edge intelligence is a practical and technically coherent mechanism for scaling learning-driven orchestration in future 6G environments. As such, the work provides a strong foundation for subsequent extensions involving realistic datasets, wireless resource models, and mixed-criticality service analysis.
+
+\begin{thebibliography}{99}
+
+\bibitem{kalor2025wireless6g}
+A.~E. Kal{\o}r, G.~Durisi, S.~Coleri, S.~Parkvall, W.~Yu, A.~Mueller, and P.~Popovski,
+``Wireless 6G Connectivity for Massive Number of Devices and Critical Services,''
+\emph{Proceedings of the IEEE}, vol.~113, no.~9, pp.~826--848, 2025, doi: 10.1109/JPROC.2024.3484529.
+
+\bibitem{mcmahan2017fedavg}
+H.~B. McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A.~y. Arcas,
+``Communication-Efficient Learning of Deep Networks from Decentralized Data,''
+in \emph{Proc. 20th Int. Conf. Artificial Intelligence and Statistics (AISTATS)}, Fort Lauderdale, FL, USA, 2017, pp.~1273--1282.
+
+\bibitem{kairouz2021advances}
+P.~Kairouz \emph{et al.},
+``Advances and Open Problems in Federated Learning,''
+\emph{Foundations and Trends in Machine Learning}, vol.~14, no.~1--2, pp.~1--210, 2021.
+
+\bibitem{amiri2020wireless}
+M.~M. Amiri and D.~G{\"u}nd{\"u}z,
+``Federated Learning Over Wireless Fading Channels,''
+\emph{IEEE Transactions on Wireless Communications}, vol.~19, no.~5, pp.~3546--3557, May~2020, doi: 10.1109/TWC.2020.2974748.
+
+\bibitem{chen2021joint}
+M.~Chen, Z.~Yang, W.~Saad, C.~Yin, H.~V. Poor, and S.~Cui,
+``A Joint Learning and Communications Framework for Federated Learning Over Wireless Networks,''
+\emph{IEEE Transactions on Wireless Communications}, vol.~20, no.~1, pp.~269--283, Jan.~2021, doi: 10.1109/TWC.2020.3024629.
+
+\bibitem{yang2021energy}
+Z.~Yang, M.~Chen, W.~Saad, C.~S. Hong, and M.~Shikh-Bahaei,
+``Energy Efficient Federated Learning Over Wireless Communication Networks,''
+\emph{IEEE Transactions on Wireless Communications}, vol.~20, no.~3, pp.~1935--1949, Mar.~2021, doi: 10.1109/TWC.2020.3037554.
+
+\bibitem{darshit2026repo}
+Darshit2308,
+``wct-6g-federated-learning,''
+GitHub repository, 2026. [Online]. Available: \url{https://github.com/darshit2308/wct-6g-federated-learning}
+
+\end{thebibliography}
+
+\end{document}
