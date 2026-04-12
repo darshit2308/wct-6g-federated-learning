@@ -70,6 +70,135 @@ def _dirichlet_partition(labels, num_clients, alpha, rng, min_size):
     raise RuntimeError("Could not build a stable Dirichlet partition for the dataset.")
 
 
+def _tensor_from_any(data):
+    if isinstance(data, torch.Tensor):
+        return data.detach().clone()
+    return torch.tensor(data)
+
+
+def _build_client_bundle_from_tensors(
+    train_x,
+    train_y,
+    eval_x,
+    eval_y,
+    num_clients,
+    hidden_size,
+    seed,
+    rng,
+    dirichlet_alpha,
+    min_train_size,
+    min_eval_size,
+    dataset_name,
+):
+    train_partitions = _dirichlet_partition(
+        train_y.numpy(),
+        num_clients=num_clients,
+        alpha=dirichlet_alpha,
+        rng=rng,
+        min_size=min_train_size,
+    )
+    eval_partitions = _dirichlet_partition(
+        eval_y.numpy(),
+        num_clients=num_clients,
+        alpha=dirichlet_alpha,
+        rng=rng,
+        min_size=min_eval_size,
+    )
+
+    clients = []
+    model_config = ModelConfig(
+        input_size=int(train_x.shape[1]),
+        hidden_size=hidden_size,
+        num_classes=int(torch.max(train_y).item() + 1),
+    )
+    global_eval_x_parts = []
+    global_eval_y_parts = []
+
+    for client_index in range(num_clients):
+        client_train_indices = train_partitions[client_index]
+        client_eval_indices = eval_partitions[client_index]
+        battery_level, network_latency, reliability_score = _random_device_state(rng)
+        client = DeviceClient(
+            client_id=f"C{client_index + 1}",
+            battery_level=battery_level,
+            network_latency=network_latency,
+            train_x=train_x[client_train_indices],
+            train_y=train_y[client_train_indices],
+            eval_x=eval_x[client_eval_indices],
+            eval_y=eval_y[client_eval_indices],
+            seed=seed + client_index,
+            model_config=model_config,
+            reliability_score=reliability_score,
+        )
+        clients.append(client)
+        global_eval_x_parts.append(client.eval_x)
+        global_eval_y_parts.append(client.eval_y)
+
+    return DatasetBundle(
+        clients=clients,
+        evaluation_x=torch.cat(global_eval_x_parts, dim=0),
+        evaluation_y=torch.cat(global_eval_y_parts, dim=0),
+        model_config=model_config,
+        dataset_name=dataset_name,
+    )
+
+
+def _load_torchvision_dataset(dataset_name, dataset_root, download_dataset):
+    try:
+        from torchvision import datasets
+    except ImportError as exc:
+        raise RuntimeError(
+            f"torchvision is required for the {dataset_name} benchmark but is not installed."
+        ) from exc
+
+    if dataset_name == "mnist":
+        train_dataset = datasets.MNIST(root=dataset_root, train=True, download=download_dataset)
+        test_dataset = datasets.MNIST(root=dataset_root, train=False, download=download_dataset)
+    elif dataset_name == "fashion_mnist":
+        train_dataset = datasets.FashionMNIST(
+            root=dataset_root,
+            train=True,
+            download=download_dataset,
+        )
+        test_dataset = datasets.FashionMNIST(
+            root=dataset_root,
+            train=False,
+            download=download_dataset,
+        )
+    elif dataset_name == "cifar10":
+        train_dataset = datasets.CIFAR10(
+            root=dataset_root,
+            train=True,
+            download=download_dataset,
+        )
+        test_dataset = datasets.CIFAR10(
+            root=dataset_root,
+            train=False,
+            download=download_dataset,
+        )
+    else:
+        raise ValueError(f"Unsupported torchvision dataset: {dataset_name}")
+
+    train_x = _tensor_from_any(train_dataset.data).float()
+    train_y = _tensor_from_any(train_dataset.targets).long()
+    eval_x = _tensor_from_any(test_dataset.data).float()
+    eval_y = _tensor_from_any(test_dataset.targets).long()
+
+    if train_x.dim() > 2:
+        train_x = train_x.view(train_x.shape[0], -1)
+    if eval_x.dim() > 2:
+        eval_x = eval_x.view(eval_x.shape[0], -1)
+
+    if dataset_name in {"mnist", "fashion_mnist"}:
+        train_x = train_x / 255.0
+        eval_x = eval_x / 255.0
+    elif dataset_name == "cifar10":
+        train_x = train_x / 255.0
+        eval_x = eval_x / 255.0
+
+    return train_x, train_y, eval_x, eval_y
+
+
 def build_dataset_bundle(
     dataset_name,
     num_clients,
@@ -146,126 +275,41 @@ def build_dataset_bundle(
         eval_x = data_x[eval_indices]
         eval_y = data_y[eval_indices]
 
-        train_partitions = _dirichlet_partition(
-            train_y.numpy(),
+        return _build_client_bundle_from_tensors(
+            train_x=train_x,
+            train_y=train_y,
+            eval_x=eval_x,
+            eval_y=eval_y,
             num_clients=num_clients,
-            alpha=dirichlet_alpha,
+            hidden_size=hidden_size,
+            seed=seed,
             rng=rng,
-            min_size=30,
-        )
-        eval_partitions = _dirichlet_partition(
-            eval_y.numpy(),
-            num_clients=num_clients,
-            alpha=dirichlet_alpha,
-            rng=rng,
-            min_size=8,
-        )
-
-        clients = []
-        model_config = ModelConfig(input_size=64, hidden_size=hidden_size, num_classes=10)
-        global_eval_x_parts = []
-        global_eval_y_parts = []
-
-        for client_index in range(num_clients):
-            client_train_indices = train_partitions[client_index]
-            client_eval_indices = eval_partitions[client_index]
-            battery_level, network_latency, reliability_score = _random_device_state(rng)
-            client = DeviceClient(
-                client_id=f"C{client_index + 1}",
-                battery_level=battery_level,
-                network_latency=network_latency,
-                train_x=train_x[client_train_indices],
-                train_y=train_y[client_train_indices],
-                eval_x=eval_x[client_eval_indices],
-                eval_y=eval_y[client_eval_indices],
-                seed=seed + client_index,
-                model_config=model_config,
-                reliability_score=reliability_score,
-            )
-            clients.append(client)
-            global_eval_x_parts.append(client.eval_x)
-            global_eval_y_parts.append(client.eval_y)
-
-        return DatasetBundle(
-            clients=clients,
-            evaluation_x=torch.cat(global_eval_x_parts, dim=0),
-            evaluation_y=torch.cat(global_eval_y_parts, dim=0),
-            model_config=model_config,
+            dirichlet_alpha=dirichlet_alpha,
+            min_train_size=30,
+            min_eval_size=8,
             dataset_name=dataset_name,
         )
 
-    if dataset_name == "mnist":
-        try:
-            from torchvision import datasets, transforms
-        except ImportError as exc:
-            raise RuntimeError(
-                "torchvision is required for the MNIST benchmark but is not installed."
-            ) from exc
-
-        transform = transforms.ToTensor()
-        train_dataset = datasets.MNIST(
-            root=dataset_root,
-            train=True,
-            download=download_dataset,
-            transform=transform,
+    if dataset_name in {"mnist", "fashion_mnist", "cifar10"}:
+        train_x, train_y, eval_x, eval_y = _load_torchvision_dataset(
+            dataset_name=dataset_name,
+            dataset_root=dataset_root,
+            download_dataset=download_dataset,
         )
-        test_dataset = datasets.MNIST(
-            root=dataset_root,
-            train=False,
-            download=download_dataset,
-            transform=transform,
-        )
-
-        train_x = train_dataset.data.float().view(-1, 28 * 28) / 255.0
-        train_y = train_dataset.targets.long()
-        eval_x = test_dataset.data.float().view(-1, 28 * 28) / 255.0
-        eval_y = test_dataset.targets.long()
-
-        train_partitions = _dirichlet_partition(
-            train_y.numpy(),
+        min_train_size = 200 if dataset_name in {"mnist", "fashion_mnist"} else 250
+        min_eval_size = 40 if dataset_name in {"mnist", "fashion_mnist"} else 50
+        return _build_client_bundle_from_tensors(
+            train_x=train_x,
+            train_y=train_y,
+            eval_x=eval_x,
+            eval_y=eval_y,
             num_clients=num_clients,
-            alpha=dirichlet_alpha,
+            hidden_size=hidden_size,
+            seed=seed,
             rng=rng,
-            min_size=200,
-        )
-        eval_partitions = _dirichlet_partition(
-            eval_y.numpy(),
-            num_clients=num_clients,
-            alpha=dirichlet_alpha,
-            rng=rng,
-            min_size=40,
-        )
-
-        clients = []
-        model_config = ModelConfig(input_size=784, hidden_size=hidden_size, num_classes=10)
-        global_eval_x_parts = []
-        global_eval_y_parts = []
-
-        for client_index in range(num_clients):
-            client_train_indices = train_partitions[client_index]
-            client_eval_indices = eval_partitions[client_index]
-            battery_level, network_latency, reliability_score = _random_device_state(rng)
-            client = DeviceClient(
-                client_id=f"C{client_index + 1}",
-                battery_level=battery_level,
-                network_latency=network_latency,
-                train_x=train_x[client_train_indices],
-                train_y=train_y[client_train_indices],
-                eval_x=eval_x[client_eval_indices],
-                eval_y=eval_y[client_eval_indices],
-                seed=seed + client_index,
-                model_config=model_config,
-                reliability_score=reliability_score,
-            )
-            clients.append(client)
-            global_eval_x_parts.append(client.eval_x)
-            global_eval_y_parts.append(client.eval_y)
-
-        return DatasetBundle(
-            clients=clients,
-            evaluation_x=torch.cat(global_eval_x_parts, dim=0),
-            evaluation_y=torch.cat(global_eval_y_parts, dim=0),
-            model_config=model_config,
+            dirichlet_alpha=dirichlet_alpha,
+            min_train_size=min_train_size,
+            min_eval_size=min_eval_size,
             dataset_name=dataset_name,
         )
 

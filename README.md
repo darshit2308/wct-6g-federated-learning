@@ -262,16 +262,28 @@ pip install -r requirements.txt
 
 ## 14. How to Run
 
-Run the simulation with:
+Run the full benchmark suite on the strongest no-download real dataset with:
 
 ```bash
-python main.py
+py -3 main.py --mode suite --dataset digits
 ```
 
-If your environment maps Python differently, use:
+Run a single method quickly with:
 
 ```bash
-python3 main.py
+py -3 main.py --mode single --dataset digits --method proposed --num-rounds 5
+```
+
+Run an adversarial benchmark with:
+
+```bash
+py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type sign_flip
+```
+
+Generate plots from exported CSV files with:
+
+```bash
+py -3 visualize_results.py --results-dir results
 ```
 
 ## 15. Dependencies
@@ -304,27 +316,30 @@ This project is a robust simulation prototype, but it is important to describe i
 
 Current limitations include:
 
-- synthetic data instead of a real benchmark dataset
-- a lightweight selection model instead of a fully trained adaptive policy
-- no true network simulator or wireless channel model
-- no asynchronous client participation
-- no real adversarial attack generator
-- no large-scale statistical benchmarking across many repeated runs
+- wireless behavior is represented through latency and energy proxies rather than a full radio simulator
+- the selector is a lightweight learned scorer rather than a reinforcement or bandit-based policy
+- no asynchronous client participation or secure aggregation is implemented yet
+- publication-grade claims still depend on running broader sweeps in your own environment
 
 These limitations do not weaken the value of the project as a course or academic prototype. In fact, stating them clearly usually improves credibility.
 
 ## 18. Future Enhancement Opportunities
 
-This project can be extended in several strong directions:
+This project now already supports several strong research extensions:
 
-- integrate a real federated dataset such as MNIST, CIFAR, or IoT telemetry data
-- compare against standard FedAvg baselines
-- add dropout-aware client availability modeling
-- incorporate trust history into client scoring
-- simulate adversarial clients explicitly
-- expand the cloud layer into multi-region aggregation
-- visualize convergence curves and selection behavior
-- integrate communication-cost analysis
+- flat FedAvg and hierarchical ablation baselines
+- repeated multi-seed benchmarking
+- real benchmark datasets such as Digits, MNIST, Fashion-MNIST, and CIFAR-10
+- fairness-aware client participation balancing
+- adversarial update injection and filtering metrics
+- communication, latency, energy, convergence, and participation exports
+
+Additional future work can still include:
+
+- dropout-aware and asynchronous participation
+- stronger trust-history modeling
+- secure aggregation and differential privacy
+- richer wireless scheduling and cross-layer simulation
 
 ## 19. Suggested Presentation Narrative
 

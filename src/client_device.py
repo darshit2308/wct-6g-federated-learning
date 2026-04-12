@@ -41,6 +41,8 @@ class DeviceClient:
 
         self.data_size = len(self.train_y)
         self.selection_count = 0
+        self.accepted_update_count = 0
+        self.rejected_update_count = 0
         self.rounds_since_last_selection = 3
         self.local_model = build_model(model_config)
         self._rng = np.random.default_rng(seed)
@@ -61,6 +63,11 @@ class DeviceClient:
 
     def selection_freshness_score(self):
         return float(min(self.rounds_since_last_selection / 4.0, 1.0))
+
+    def selection_pressure(self):
+        if self.selection_count == 0:
+            return 0.0
+        return float(self.accepted_update_count / self.selection_count)
 
     def system_quality_score(self):
         battery_term = self.battery_level / 100.0
@@ -116,6 +123,7 @@ class DeviceClient:
             + 0.10 * self.system_quality_score()
         )
         if accepted:
+            self.accepted_update_count += 1
             reliability_target = 0.55 + 0.45 * update_metrics["accuracy"]
             self.historical_utility = float(
                 np.clip(0.7 * self.historical_utility + 0.3 * learning_signal, 0.05, 1.0)
@@ -124,11 +132,26 @@ class DeviceClient:
                 np.clip(0.8 * self.reliability_score + 0.2 * reliability_target, 0.2, 1.0)
             )
         else:
+            self.rejected_update_count += 1
             penalized_signal = max(0.05, 0.55 * learning_signal)
             self.historical_utility = float(
                 np.clip(0.82 * self.historical_utility + 0.18 * penalized_signal, 0.05, 1.0)
             )
             self.reliability_score = float(np.clip(self.reliability_score * 0.82, 0.15, 1.0))
+
+    def selection_state_vector(self):
+        return {
+            "battery_level": self.battery_level,
+            "network_latency": self.network_latency,
+            "data_size": self.data_size,
+            "freshness_score": self.selection_freshness_score(),
+            "diversity_score": self.data_diversity_score(),
+            "historical_utility": self.historical_utility,
+            "reliability_score": self.reliability_score,
+            "selection_count": self.selection_count,
+            "accepted_update_count": self.accepted_update_count,
+            "rejected_update_count": self.rejected_update_count,
+        }
 
     def _apply_attack(self, delta, attack_type, attack_scale):
         if attack_type == "sign_flip":
@@ -162,6 +185,7 @@ class DeviceClient:
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.local_model.parameters(), lr=lr)
         batch_size = int(min(64, max(16, self.data_size // 4)))
+        estimated_train_steps = int(np.ceil(self.data_size / batch_size) * epochs)
 
         self.local_model.train()
         for _ in range(epochs):
@@ -212,6 +236,10 @@ class DeviceClient:
             * (1.1 - self.battery_level / 100.0)
             * (1.0 + delta_norm)
         )
+        train_time_proxy_ms = float(
+            estimated_train_steps
+            * (0.18 * self.model_config.hidden_size + 0.04 * self.model_config.input_size)
+        )
 
         return {
             "client_id": self.client_id,
@@ -224,10 +252,13 @@ class DeviceClient:
             "accuracy": metrics["accuracy"],
             "latency_ms": float(self.network_latency),
             "energy_proxy": float(energy_proxy),
+            "train_time_proxy_ms": train_time_proxy_ms,
             "upload_scalars": upload_scalars,
             "battery_level": self.battery_level,
             "is_adversarial": is_adversarial,
             "reliability_score": self.reliability_score,
+            "diversity_score": self.data_diversity_score(),
+            "freshness_score": self.selection_freshness_score(),
         }
 
     def evaluate(self, weights=None, split="eval"):
