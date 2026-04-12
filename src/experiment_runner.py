@@ -33,10 +33,10 @@ class ExperimentConfig:
     num_clients: int = 20
     num_edges: int = 2
     clients_per_round: int = 4
-    num_rounds: int = 8
-    local_epochs: int = 2
-    learning_rate: float = 0.02
-    hidden_size: int = 32
+    num_rounds: int = 10
+    local_epochs: int = 4
+    learning_rate: float = 0.01
+    hidden_size: int = 64
     seed: int = 42
     synthetic_feature_count: int = 10
     synthetic_min_samples: int = 240
@@ -921,6 +921,7 @@ def _build_publication_report(aggregated_summaries):
     best_fairness = max(aggregated_summaries, key=lambda item: item["final_selection_fairness_mean"])
     lowest_gini = min(aggregated_summaries, key=lambda item: item["final_participation_gini_mean"])
     strongest_security = max(aggregated_summaries, key=lambda item: item["attack_detection_rate_mean"])
+    has_attacks = any(item["total_attack_clients_mean"] > 0 for item in aggregated_summaries)
     best_worst_class = max(
         aggregated_summaries,
         key=lambda item: item["final_worst_class_accuracy_mean"],
@@ -959,12 +960,19 @@ def _build_publication_report(aggregated_summaries):
             f"- Strongest worst-class accuracy: `{best_worst_class['method']}` at "
             f"{best_worst_class['final_worst_class_accuracy_mean']:.4f}"
         ),
-        (
-            f"- Best attack detection: `{strongest_security['method']}` at "
-            f"{strongest_security['attack_detection_rate_mean']:.4f}"
-        ),
         "",
     ]
+
+    if has_attacks:
+        lines.insert(
+            len(lines) - 1,
+            (
+                f"- Best attack detection: `{strongest_security['method']}` at "
+                f"{strongest_security['attack_detection_rate_mean']:.4f}"
+            ),
+        )
+    else:
+        lines.insert(len(lines) - 1, "- Attack benchmark: not active in this run")
 
     if flat_baseline is not None:
         strongest_hierarchical = max(
@@ -1006,17 +1014,17 @@ def _build_publication_report(aggregated_summaries):
     )
 
     for rank, summary in enumerate(ranked, start=1):
-        lines.append(
-            (
-                f"{rank}. `{summary['method']}`: accuracy={summary['final_accuracy_mean']:.4f}, "
-                f"macro_f1={summary['final_macro_f1_mean']:.4f}, "
-                f"worst_class={summary['final_worst_class_accuracy_mean']:.4f}, "
-                f"bytes={summary['total_payload_bytes_mean']:.0f}, "
-                f"fairness={summary['final_selection_fairness_mean']:.4f}, "
-                f"gini={summary['final_participation_gini_mean']:.4f}, "
-                f"attack_detect={summary['attack_detection_rate_mean']:.4f}"
-            )
+        ranking_line = (
+            f"{rank}. `{summary['method']}`: accuracy={summary['final_accuracy_mean']:.4f}, "
+            f"macro_f1={summary['final_macro_f1_mean']:.4f}, "
+            f"worst_class={summary['final_worst_class_accuracy_mean']:.4f}, "
+            f"bytes={summary['total_payload_bytes_mean']:.0f}, "
+            f"fairness={summary['final_selection_fairness_mean']:.4f}, "
+            f"gini={summary['final_participation_gini_mean']:.4f}"
         )
+        if has_attacks:
+            ranking_line += f", attack_detect={summary['attack_detection_rate_mean']:.4f}"
+        lines.append(ranking_line)
 
     lines.extend(
         [
@@ -1025,7 +1033,11 @@ def _build_publication_report(aggregated_summaries):
             "",
             "- Table 1: Final accuracy, macro-F1, balanced accuracy, worst-class accuracy, and bytes.",
             "- Table 2: Fairness metrics including Jain fairness, participation entropy, coverage, and Gini.",
-            "- Table 3: Security metrics including attack detection, attack escape rate, benign retention, and filter precision.",
+            (
+                "- Table 3: Security metrics including attack detection, attack escape rate, benign retention, and filter precision."
+                if has_attacks
+                else "- Table 3: Fairness or communication ablations, since no attack benchmark was active in this run."
+            ),
             "- Figure 1: Accuracy and macro-F1 by round with seed variance bands.",
             "- Figure 2: Communication and latency trade-offs across methods.",
             "- Figure 3: Fairness and participation inequality comparison across methods.",

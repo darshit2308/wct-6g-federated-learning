@@ -128,11 +128,15 @@ wct-6g-federated-learning/
 ├── main.py
 ├── requirements.txt
 ├── README.md
+├── visualize_results.py
+├── docs/
+│   └── research_paper.tex
 └── src/
-    ├── __init__.py
     ├── client_device.py
     ├── cloud_server.py
+    ├── data_utils.py
     ├── edge_server.py
+    ├── experiment_runner.py
     ├── model.py
     └── smart_aggregator.py
 ```
@@ -143,13 +147,10 @@ wct-6g-federated-learning/
 
 This is the simulation entry point. It:
 
-- sets seeds for reproducibility
-- creates clients and edge servers
-- splits devices across edge regions
-- executes multiple FL rounds
-- performs cloud aggregation
-- prints per-round metrics
-- prints a final summary at the end of execution
+- runs either a single method or a full benchmark suite
+- exposes the publication benchmark profile through CLI arguments
+- prints multi-metric summaries for clean and attack-aware evaluation
+- exports benchmark artifacts through the experiment runner
 
 ### `src/model.py`
 
@@ -166,11 +167,12 @@ This file defines the neural network and helper functions for:
 
 This file models a participating device. It:
 
-- creates a client-specific synthetic dataset
 - simulates changing battery and latency conditions across rounds
 - trains the local model using the incoming global model
 - computes the client delta
 - evaluates the updated local model
+- tracks historical utility, freshness, and reliability
+- supports adversarial behaviors such as sign-flip and label-flip updates
 - returns metrics and contribution metadata to the edge
 
 ### `src/edge_server.py`
@@ -179,11 +181,29 @@ This file models the edge intelligence layer. It:
 
 - creates a lightweight client-selection model
 - evaluates clients each round
-- selects the top candidates
+- supports random, intelligent, and fairness-aware selection
 - launches local client training
 - invokes secure filtering
 - performs regional aggregation
 - reports round summaries for presentation
+
+### `src/data_utils.py`
+
+This file builds the client datasets. It:
+
+- creates synthetic non-IID client data
+- partitions benchmark datasets such as Digits, MNIST, Fashion-MNIST, and CIFAR-10
+- applies Dirichlet partitioning to create heterogeneous federated splits
+- prepares the shared global evaluation tensors
+
+### `src/experiment_runner.py`
+
+This file is the benchmark engine. It:
+
+- defines the benchmark methods and ablations
+- runs repeated multi-seed experiments
+- aggregates summary metrics and round metrics
+- exports CSV, JSON, markdown reports, and LaTeX tables for the paper
 
 ### `src/smart_aggregator.py`
 
@@ -220,14 +240,13 @@ The flow of one full round is:
 
 ## 10. Dataset Strategy Used in This Simulation
 
-This project uses synthetic per-client datasets rather than a real-world benchmark dataset. That choice was intentional for the following reasons:
+This project supports both synthetic and real benchmark datasets.
 
-- it keeps the project self-contained
-- it avoids external dataset setup complexity
-- it makes the simulation easy to reproduce on another system
-- it allows clear control over client heterogeneity
+- `synthetic` keeps the project self-contained and easy to explain
+- `digits` is the strongest no-download benchmark and is the recommended default for publication-style evaluation
+- `mnist`, `fashion_mnist`, and `cifar10` are supported through `torchvision`
 
-Each client receives a slightly different data distribution so that the environment is non-identical across devices, which better reflects realistic federated learning conditions.
+Each client receives a non-identical data distribution through client-specific generation or Dirichlet partitioning, which makes the environment meaningfully federated rather than iid.
 
 ## 11. Experimental Behavior
 
@@ -269,42 +288,42 @@ This makes the round-wise output meaningful rather than decorative.
 Create and activate a virtual environment, then install the required packages.
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
 ## 14. How to Run
 
-Run the full benchmark suite on the strongest no-download real dataset with:
+Run the publication-profile benchmark suite on the strongest no-download real dataset with:
 
 ```bash
-py -3 main.py --mode suite --dataset digits
+python main.py
 ```
 
 Run a single method quickly with:
 
 ```bash
-py -3 main.py --mode single --dataset digits --method proposed --num-rounds 5
+python main.py --mode single --method proposed
 ```
 
 Run an adversarial benchmark with:
 
 ```bash
-py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type sign_flip
+python main.py --mode suite --attack-fraction 0.25 --attack-type sign_flip
 ```
 
 Run stronger poisoning benchmarks with label flipping or model replacement:
 
 ```bash
-py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type label_flip
-py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type model_replacement
+python main.py --mode suite --attack-fraction 0.25 --attack-type label_flip
+python main.py --mode suite --attack-fraction 0.25 --attack-type model_replacement
 ```
 
 Generate plots from exported CSV files with:
 
 ```bash
-py -3 visualize_results.py --results-dir results
+python visualize_results.py --results-dir results
 ```
 
 ## 15. Dependencies

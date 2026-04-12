@@ -28,7 +28,7 @@ ABV-IIITM , Gwalior, India
 \maketitle
 
 \begin{abstract}
-Sixth-generation (6G) wireless systems are expected to support both massive device populations and services with stringent reliability and timeliness requirements. These demands create pressure on the learning, communication, and orchestration layers of future edge-native networks. Motivated by recent 6G connectivity research, this paper presents an implementation-oriented study of an adaptive hierarchical federated learning (FL) framework designed for a three-tier device-edge-cloud architecture. The proposed framework combines fairness-aware edge-side client selection, quality-aware weighted aggregation, hybrid anomaly screening based on both update norms and update directions, and global model synchronization across rounds. Unlike flat FL, the cloud does not aggregate every selected client update directly; instead, regional edge servers perform intermediate aggregation and transmit only validated regional models. The artifact now supports a benchmark suite with flat and hierarchical baselines, five-seed evaluation, real datasets such as Digits and optional torchvision benchmarks, and exports for communication, latency, energy, convergence, fairness, class-balance, and attack-screening metrics. On the clean Digits benchmark, the strongest benign-only result is achieved by the fairness-aware no-filter ablation at 0.8872 final accuracy and 0.8847 macro-F1, while the proposed method attains 0.8644 accuracy with similarly strong participation fairness (0.8985 Jain fairness and 0.1797 Gini). Under a 25\% sign-flip attack benchmark, the proposed method becomes the best overall operating point, reaching 0.8756 final accuracy, 0.8697 macro-F1, 100\% attack detection, 100\% benign retention, and the strongest fairness score among all methods. The resulting contribution is therefore not a claim of universal dominance on every benign metric, but a benchmark-oriented software artifact that exposes the trade-off between clean-set efficiency and security-aware reliability in hierarchical FL for 6G-inspired edge environments.
+Sixth-generation (6G) wireless systems are expected to support both massive device populations and services with stringent reliability and timeliness requirements. These demands create pressure on the learning, communication, and orchestration layers of future edge-native networks. Motivated by recent 6G connectivity research, this paper presents a benchmark-oriented study of an adaptive hierarchical federated learning (FL) framework designed for a three-tier device-edge-cloud architecture. The proposed framework combines fairness-aware edge-side client selection, quality-aware weighted aggregation, hybrid anomaly screening based on both update norms and update directions, and global model synchronization across rounds. Unlike flat FL, the cloud does not aggregate every selected client update directly; instead, regional edge servers perform intermediate aggregation and transmit only validated regional models. The artifact supports direct baseline comparison, five-seed evaluation, real datasets such as Digits and optional torchvision benchmarks, and exports for communication, latency, energy, convergence, fairness, class-balance, and attack-screening metrics. On the clean five-seed Digits benchmark, the strongest benign-only result is achieved by the fairness-aware no-filter ablation at 0.9117 final accuracy and 0.9092 macro-F1, while the proposed filtered method attains 0.9028 accuracy, 0.9001 macro-F1, and 0.8779 Jain fairness. Under a 25\% sign-flip attack benchmark, the proposed method reaches 0.9061 final accuracy, 0.9051 macro-F1, 100\% attack detection, 100\% benign retention, and 0.8795 Jain fairness, while reducing cloud-facing uploads from 80 direct client uploads in flat FedAvg to 20 edge uploads over the full run. The resulting contribution is therefore not a claim of universal dominance on every clean-set metric, but a benchmark-ready hierarchical FL artifact that makes the trade-off between clean performance, fairness, cloud coordination load, and robustness explicit for 6G-inspired edge environments.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -130,7 +130,10 @@ where $\tilde{\mathbf{s}}_i^{(t)}$ is the standardized feature vector and $\sigm
 
 To initialize the selector without requiring a pre-existing labeled dataset, the implementation first generates synthetic training samples using a rule-based device desirability score
 \begin{equation}
-\psi_i = 0.28 \frac{b_i}{100} + 0.22\left(1 - \frac{\ell_i}{200}\right) + 0.18 \min\left(\frac{n_i}{1000},1\right) + 0.14 r_i + 0.10 d_i + 0.08 f_i.
+\begin{aligned}
+\psi_i ={}& 0.28 \frac{b_i}{100} + 0.22\left(1 - \frac{\ell_i}{200}\right) \\
+&+ 0.18 \min\left(\frac{n_i}{1000},1\right) + 0.14 r_i + 0.10 d_i + 0.08 f_i.
+\end{aligned}
 \end{equation}
 Binary labels are then assigned using a threshold $\tau = 0.58$:
 \begin{equation}
@@ -150,10 +153,10 @@ y = \mathbb{I}\left(0.9x_1 - 0.6x_2 + 0.4x_3 + 0.3x_4 + \epsilon > 0 \right),
 where $\epsilon$ is Gaussian noise and $\mathbb{I}(\cdot)$ is the indicator function. This creates non-identical data distributions across clients without requiring an external dataset. In addition, the artifact supports benchmark datasets such as Digits and optional torchvision datasets using Dirichlet non-IID partitioning across clients. This makes the system suitable for both self-contained demonstrations and stronger publication-style evaluation.
 
 \subsection{Local Training}
-Each selected client receives the current global model and performs a small number of local training epochs. The model used in this study is a compact multilayer perceptron whose input dimension adapts to the active dataset. The architecture follows the pattern:
+Each selected client receives the current global model and performs mini-batch local training with Adam optimization. The model used in this study is a compact multilayer perceptron whose input dimension adapts to the active dataset. The architecture follows the pattern:
 \begin{itemize}
     \item dataset-dependent input dimension,
-    \item one hidden layer with configurable width (default $32$),
+    \item one hidden layer with configurable width (default $64$),
     \item ReLU activation,
     \item output dimension matched to the dataset class count.
 \end{itemize}
@@ -162,7 +165,10 @@ The client returns its trained model, the update delta, local accuracy, local lo
 \subsection{Quality-Aware Edge Aggregation}
 To avoid treating all clients equally, each client receives a transmitted quality score that combines system condition, data diversity, historical utility, and immediate local-learning quality. A normalized system-condition score is defined as
 \begin{equation}
-u_i^{(t)} = 0.35 \frac{b_i^{(t)}}{100} + 0.20\left(1 - \frac{\ell_i^{(t)}}{200}\right) + 0.30 \min\left(\frac{n_i}{900},1\right) + 0.15 r_i.
+\begin{aligned}
+u_i^{(t)} ={}& 0.35 \frac{b_i^{(t)}}{100} + 0.20\left(1 - \frac{\ell_i^{(t)}}{200}\right) \\
+&+ 0.30 \min\left(\frac{n_i}{900},1\right) + 0.15 r_i.
+\end{aligned}
 \end{equation}
 The immediate learning-quality score is
 \begin{equation}
@@ -220,9 +226,9 @@ Total number of clients & 20 \\
 Number of edge servers & 2 \\
 Selected clients per edge per round & 4 \\
 Total communication rounds & 10 \\
-Local epochs & 2 \\
-Learning rate & 0.02 (default) \\
-Hidden width & 32 \\
+Local epochs & 4 \\
+Learning rate & 0.01 \\
+Hidden width & 64 \\
 Reported dataset & Digits \\
 Partitioning & Dirichlet non-IID split with $\alpha = 0.5$ \\
 Selection modes & Random, intelligent, fairness-aware intelligent \\
@@ -267,21 +273,23 @@ The upgraded artifact was executed on the Digits benchmark across five seeds usi
 \toprule
 \textbf{Method} & \textbf{Final Acc.} & \textbf{Macro-F1} & \textbf{Bal. Acc.} & \textbf{Worst Cls.} & \textbf{Cloud Up.} & \textbf{Fairness} & \textbf{Gini} \\
 \midrule
-\texttt{flat\_fedavg\_random} & 0.8717 & 0.8661 & 0.8740 & 0.5746 & 80 & 0.8804 & 0.2027 \\
-\texttt{hierarchical\_random\_fedavg} & 0.8533 & 0.8381 & 0.8577 & 0.4288 & 20 & 0.8544 & 0.2310 \\
-\texttt{hierarchical\_intelligent\_fedavg} & 0.8750 & 0.8720 & 0.8735 & 0.5833 & 20 & 0.5219 & 0.5227 \\
-\texttt{hierarchical\_intelligent\_no\_filter} & \textbf{0.8872} & \textbf{0.8847} & \textbf{0.8846} & \textbf{0.5934} & 20 & \textbf{0.8993} & 0.1802 \\
-\texttt{hierarchical\_intelligent\_no\_fairness} & 0.8733 & 0.8645 & 0.8696 & 0.4529 & 20 & 0.5354 & 0.5068 \\
-\texttt{proposed} & 0.8644 & 0.8583 & 0.8660 & 0.4319 & 20 & 0.8985 & \textbf{0.1797} \\
+\texttt{flat\_fedavg\_random} & 0.9061 & 0.9044 & 0.9081 & 0.6712 & 80 & 0.8804 & 0.2027 \\
+\texttt{hierarchical\_random\_fedavg} & 0.8839 & 0.8771 & 0.8876 & 0.5395 & 20 & 0.8544 & 0.2310 \\
+\texttt{hierarchical\_intelligent\_fedavg} & 0.9072 & 0.9057 & 0.9056 & \textbf{0.7097} & 20 & 0.5169 & 0.5273 \\
+\texttt{hierarchical\_intelligent\_no\_filter} & \textbf{0.9117} & \textbf{0.9092} & \textbf{0.9119} & 0.7041 & 20 & \textbf{0.8987} & \textbf{0.1807} \\
+\texttt{hierarchical\_intelligent\_no\_fairness} & 0.8994 & 0.8947 & 0.8972 & 0.6098 & 20 & 0.5338 & 0.5140 \\
+\texttt{proposed} & 0.9028 & 0.9001 & 0.9044 & 0.6225 & 20 & 0.8779 & 0.2050 \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
 
 \subsection{Clean-Benchmark Interpretation}
-The clean benchmark reveals a more nuanced trade-off than a simple ``proposed method wins everywhere'' narrative. The strongest benign-only result is obtained by \texttt{hierarchical\_intelligent\_no\_filter}, which reaches 0.8872 final accuracy and 0.8847 macro-F1 while also achieving strong fairness (0.8993). The proposed method remains highly competitive on fairness (0.8985 Jain fairness and the lowest Gini score at 0.1797), but its clean-set accuracy drops to 0.8644. This gap is consistent with the fact that the proposed method applies conservative filtering even in benign conditions. In the clean five-seed run, the proposed method retains 92.25\% of benign updates on average, indicating that a small number of legitimate updates are rejected together with suspicious ones. This is a meaningful cost, and it should be stated explicitly.
+The clean benchmark reveals a more nuanced trade-off than a simple ``proposed method wins everywhere'' narrative. The strongest benign-only result is obtained by \texttt{hierarchical\_intelligent\_no\_filter}, which reaches 0.9117 final accuracy and 0.9092 macro-F1 while also achieving the strongest participation balance (0.8987 Jain fairness and 0.1807 Gini). The proposed method remains competitive at 0.9028 accuracy and 0.9001 macro-F1, but it is not the top clean-setting model. This gap is consistent with the fact that the proposed method applies conservative filtering even in benign conditions. In the clean five-seed run, the proposed method retains 92.5\% of benign updates on average, indicating that a small number of legitimate updates are rejected together with suspicious ones. This is a real clean-set cost and should be stated explicitly.
 
-At the same time, the clean benchmark still supports two publication-relevant claims. First, fairness-aware hierarchical coordination can maintain very balanced participation while preserving strong predictive quality. Second, the hierarchy reduces cloud-facing uploads from 80 to 20 over the full run, corresponding to a 75\% reduction in cloud fan-in. However, the total payload bytes rise from 771{,}200 in flat FedAvg to 964{,}000 in the hierarchical runs because this simulation counts both device-to-edge and edge-to-cloud transmissions and does not implement compression. Therefore, the present artifact demonstrates backhaul relief and aggregation decentralization rather than absolute end-to-end byte minimization.
+The clean benchmark also shows that no single baseline dominates every metric. \texttt{hierarchical\_intelligent\_fedavg} achieves the strongest worst-class accuracy at 0.7097, but its fairness collapses to 0.5169 because the same strong clients are repeatedly preferred. Flat FedAvg remains competitive on predictive quality and has the lowest total payload because it avoids the additional edge hop. Therefore, the clean results support a careful claim: fairness-aware hierarchy can remain highly accurate and greatly reduce cloud coordination pressure, but conservative filtering is primarily justified by robustness rather than by clean-set maximization.
+
+At the same time, the clean benchmark still supports two publication-relevant claims. First, fairness-aware hierarchical coordination can maintain very balanced participation while preserving strong predictive quality. Second, the hierarchy reduces cloud-facing uploads from 80 to 20 over the full run, corresponding to a 75\% reduction in cloud fan-in. However, the total payload bytes rise from 1{,}539{,}200 in flat FedAvg to 1{,}924{,}000 in the hierarchical runs because this simulation counts both device-to-edge and edge-to-cloud transmissions and does not implement compression. Therefore, the present artifact demonstrates backhaul relief and aggregation decentralization rather than absolute end-to-end byte minimization.
 
 \subsection{Metrics That Strengthen Publication Claims}
 Compared with the earlier prototype-oriented version of the project, the upgraded artifact supports much stronger publication claims because it measures:
@@ -311,18 +319,20 @@ To evaluate the anomaly-filtering mechanism under attack, we executed a second D
 \toprule
 \textbf{Method} & \textbf{Final Acc.} & \textbf{Macro-F1} & \textbf{Bal. Acc.} & \textbf{Worst Cls.} & \textbf{Fairness} & \textbf{Atk. Detect} \\
 \midrule
-\texttt{flat\_fedavg\_random} & 0.1011 & 0.0183 & 0.1000 & 0.0000 & 0.8804 & 0.0000 \\
-\texttt{hierarchical\_random\_fedavg} & 0.0917 & 0.0168 & 0.1000 & 0.0000 & 0.8485 & 0.0000 \\
-\texttt{hierarchical\_intelligent\_fedavg} & 0.1017 & 0.0186 & 0.0994 & 0.0000 & 0.5763 & 0.0000 \\
-\texttt{hierarchical\_intelligent\_no\_filter} & 0.1150 & 0.0279 & 0.1161 & 0.0000 & 0.8957 & 0.0000 \\
-\texttt{hierarchical\_intelligent\_no\_fairness} & 0.8422 & 0.8295 & 0.8414 & 0.3868 & 0.5980 & 1.0000 \\
-\texttt{proposed} & \textbf{0.8756} & \textbf{0.8697} & \textbf{0.8748} & \textbf{0.4962} & \textbf{0.9047} & \textbf{1.0000} \\
+\texttt{flat\_fedavg\_random} & 0.0978 & 0.0188 & 0.0969 & 0.0000 & 0.8804 & 0.0000 \\
+\texttt{hierarchical\_random\_fedavg} & 0.1333 & 0.0478 & 0.1354 & 0.0000 & 0.8485 & 0.0000 \\
+\texttt{hierarchical\_intelligent\_fedavg} & 0.1028 & 0.0186 & 0.1000 & 0.0000 & 0.5744 & 0.0000 \\
+\texttt{hierarchical\_intelligent\_no\_filter} & 0.1089 & 0.0298 & 0.1157 & 0.0000 & \textbf{0.9017} & 0.0000 \\
+\texttt{hierarchical\_intelligent\_no\_fairness} & \textbf{0.9061} & \textbf{0.9053} & 0.9051 & \textbf{0.6923} & 0.5979 & \textbf{1.0000} \\
+\texttt{proposed} & \textbf{0.9061} & 0.9051 & \textbf{0.9060} & 0.6899 & 0.8795 & \textbf{1.0000} \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
 
-The adversarial benchmark is especially revealing. Every method without filtering collapses to near-chance behavior, with macro-F1 scores below 0.03. In contrast, the two filtered weighted methods remain highly effective. Among them, the proposed method is the strongest overall operating point, reaching 0.8756 final accuracy, 0.8697 macro-F1, 0.4962 worst-class accuracy, 100\% attack detection, 0\% attack escape, 100\% filter precision, and 100\% benign retention. The variant without fairness also detects all attacks, but it is weaker than the proposed method on every reported predictive metric and substantially weaker on participation fairness (0.5980 versus 0.9047). This result shows that conservative filtering is not merely decorative: it materially changes the behavior of the system under malicious updates, and the fairness-aware selection layer remains useful even when robustness is already in place.
+The adversarial benchmark is especially revealing. Every method without filtering collapses to near-chance behavior, with macro-F1 scores below 0.05. In contrast, the two filtered weighted methods remain highly effective. The proposed method and the no-fairness filtered ablation are essentially tied on final accuracy at 0.9061 and both achieve 100\% attack detection, 0\% attack escape, 100\% filter precision, and 100\% benign retention in the reported sign-flip benchmark. However, the proposed method reaches this robustness while maintaining much better participation fairness (0.8795 Jain fairness versus 0.5979) and slightly better balanced accuracy (0.9060 versus 0.9051). For that reason, it is the strongest overall operating point once robustness and fairness are optimized jointly rather than accuracy alone.
+
+This result shows that conservative filtering is not merely decorative: it materially changes the behavior of the system under malicious updates. It also shows that fairness-aware selection remains useful even when robustness is already present, because the filtered no-fairness ablation reaches similar predictive performance while concentrating participation much more unevenly across clients.
 
 \subsection{Limits of the Reported Metrics}
 At the same time, latency, communication load, and energy are still measured through software proxies rather than a detailed wireless simulator or real hardware instrumentation. The reported learning results are also currently based on the Digits benchmark rather than larger-scale vision tasks. Therefore, these metrics should be interpreted as comparative systems indicators rather than exact deployment measurements, and the present conclusions should be read as benchmark evidence for orchestration-layer behavior rather than a complete validation of 6G networking performance. This is still a meaningful improvement over the previous prototype, because the artifact now supports direct method-to-method comparison instead of only descriptive discussion.
@@ -356,7 +366,7 @@ These limitations suggest several future extensions:
 \section{Conclusion}
 This paper presented a benchmark-oriented upgrade of an adaptive hierarchical federated learning system for 6G-inspired edge intelligence. The upgraded artifact goes beyond a functional prototype by integrating benchmark baselines, fairness-aware client selection, quality-weighted aggregation, anomaly screening, real-dataset support, adversarial testing hooks, and publication-oriented metric exports.
 
-The empirical results show a clear trade-off. In benign conditions, the no-filter fairness-aware ablation achieves the highest clean accuracy, indicating that conservative filtering can reduce peak clean performance when attacks are absent. Under adversarial conditions, however, the proposed method becomes the strongest overall operating point: it combines high predictive quality, perfect attack detection in the reported sign-flip benchmark, full benign retention, and the strongest participation fairness among all methods. The central contribution is therefore not only a hierarchical FL mechanism, but a complete comparative evaluation framework that enables stronger and more credible research claims about the interaction among edge hierarchy, fairness, and robustness in 6G-inspired distributed learning.
+The empirical results show a clear trade-off. In benign conditions, the no-filter fairness-aware ablation achieves the highest clean accuracy and macro-F1, indicating that conservative filtering can reduce peak clean performance when attacks are absent. Under adversarial conditions, however, the proposed method becomes the strongest overall operating point: it matches the best robust final accuracy, maintains perfect attack detection and benign retention in the reported sign-flip benchmark, and preserves substantially better participation fairness than the strongest no-fairness robust ablation. The central contribution is therefore not only a hierarchical FL mechanism, but a complete comparative evaluation framework that enables stronger and more credible research claims about the interaction among edge hierarchy, fairness, and robustness in 6G-inspired distributed learning.
 
 \begin{thebibliography}{99}
 

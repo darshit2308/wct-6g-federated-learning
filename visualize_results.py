@@ -4,6 +4,9 @@ from pathlib import Path
 import pandas as pd
 
 try:
+    import matplotlib
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except ImportError as exc:
     raise RuntimeError(

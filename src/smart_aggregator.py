@@ -105,6 +105,9 @@ class SmartAggregator:
             return float(update["num_samples"])
         if aggregation_strategy == "quality_weighted":
             return float(update["num_samples"] * update["quality_score"])
+        if aggregation_strategy == "adaptive_weighted":
+            utility_term = 0.6 + 0.4 * update.get("utility_score", update["quality_score"])
+            return float(update["num_samples"] * update["quality_score"] * utility_term)
         raise ValueError(f"Unsupported aggregation strategy: {aggregation_strategy}")
 
     def aggregate(
