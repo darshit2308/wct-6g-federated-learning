@@ -15,13 +15,13 @@
   "synthetic_max_samples": 900,
   "eval_ratio": 0.2,
   "dirichlet_alpha": 0.5,
-  "attack_fraction": 0.0,
+  "attack_fraction": 0.25,
   "attack_type": "sign_flip",
   "attack_scale": 5.0,
   "backhaul_latency_ms": 8.0,
   "edge_compute_latency_ms": 2.0,
   "bytes_per_scalar": 4,
   "convergence_fraction_of_best": 0.9,
-  "results_dir": "results",
-  "quiet": false
+  "results_dir": "results_attack",
+  "quiet": true
 }

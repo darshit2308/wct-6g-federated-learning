@@ -112,6 +112,22 @@ class SmartAggregator:
                 aggregated_delta[layer_index] += delta_layer * ratio
 
         aggregated_weights = apply_weight_delta(base_weights, aggregated_delta)
+        blocked_adversarial = int(sum(1 for update in removed_updates if update["is_adversarial"]))
+        accepted_adversarial = int(sum(1 for update in safe_updates if update["is_adversarial"]))
+        total_adversarial = blocked_adversarial + accepted_adversarial
+        blocked_benign = int(sum(1 for update in removed_updates if not update["is_adversarial"]))
+        accepted_benign = int(sum(1 for update in safe_updates if not update["is_adversarial"]))
+        security_recall = (
+            blocked_adversarial / total_adversarial if total_adversarial else 0.0
+        )
+        filter_precision = (
+            blocked_adversarial / len(removed_updates) if removed_updates else 0.0
+        )
+        benign_retention = (
+            accepted_benign / (accepted_benign + blocked_benign)
+            if (accepted_benign + blocked_benign)
+            else 1.0
+        )
 
         return {
             "weights": aggregated_weights,
@@ -133,7 +149,19 @@ class SmartAggregator:
                 np.mean([update["latency_ms"] for update in client_updates])
             ),
             "max_latency_ms": float(max(update["latency_ms"] for update in client_updates)),
+            "mean_train_time_proxy_ms": float(
+                np.mean([update["train_time_proxy_ms"] for update in client_updates])
+            ),
             "num_adversarial": int(
                 sum(1 for update in client_updates if update["is_adversarial"])
+            ),
+            "num_blocked_adversarial": blocked_adversarial,
+            "num_accepted_adversarial": accepted_adversarial,
+            "num_blocked_benign": blocked_benign,
+            "security_recall": float(security_recall),
+            "filter_precision": float(filter_precision),
+            "benign_retention": float(benign_retention),
+            "mean_quality_score": float(
+                np.mean([update["quality_score"] for update in safe_updates])
             ),
         }

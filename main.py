@@ -31,14 +31,14 @@ def parse_args():
     )
     parser.add_argument(
         "--methods",
-        default="proposed,flat_fedavg_random,hierarchical_random_fedavg,hierarchical_intelligent_fedavg,hierarchical_intelligent_no_filter",
+        default="proposed,flat_fedavg_random,hierarchical_random_fedavg,hierarchical_intelligent_fedavg,hierarchical_intelligent_no_filter,hierarchical_intelligent_no_fairness",
         help="Comma-separated list of methods for suite mode.",
     )
     parser.add_argument(
         "--dataset",
-        default="synthetic",
-        choices=["synthetic", "digits", "mnist"],
-        help="Dataset to use. digits is the strongest no-download benchmark. mnist requires torchvision data access.",
+        default="digits",
+        choices=["synthetic", "digits", "mnist", "fashion_mnist", "cifar10"],
+        help="Dataset to use. digits is the strongest no-download benchmark; torchvision datasets need local files or downloads.",
     )
     parser.add_argument("--download-dataset", action="store_true", help="Allow dataset downloads when supported.")
     parser.add_argument("--dataset-root", default="data", help="Directory for datasets.")
@@ -97,9 +97,10 @@ def main():
         print(f"Final Accuracy: {summary['final_accuracy']:.4f}")
         print(f"Final Loss: {summary['final_loss']:.4f}")
         print(f"Accuracy Gain: {summary['accuracy_gain']:.4f}")
-        print(f"Cloud Uploads: {summary['total_cloud_uploads']}")
-        print(f"Energy Proxy: {summary['total_energy_proxy']:.2f}")
+        print(f"Total Payload Bytes: {summary['total_payload_bytes']}")
+        print(f"Latency Proxy: {summary['mean_round_latency_proxy_ms']:.2f} ms")
         print(f"Selection Fairness: {summary['final_selection_fairness']:.4f}")
+        print(f"Attack Detection Rate: {summary['attack_detection_rate']:.4f}")
         return
 
     method_names = [method.strip() for method in args.methods.split(",") if method.strip()]

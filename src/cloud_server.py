@@ -16,19 +16,23 @@ class CloudServer:
         if not edge_updates:
             return self.global_weights
 
+        valid_edge_updates = [update for update in edge_updates if update["num_samples"] > 0]
+        if not valid_edge_updates:
+            return self.global_weights
+
         if verbose:
             print("\n[CLOUD LAYER] Performing final global aggregation across all edge servers...")
 
-        total_samples = sum(update["num_samples"] for update in edge_updates)
-        coefficients = [update["num_samples"] / total_samples for update in edge_updates]
-        edge_weight_sets = [update["weights"] for update in edge_updates]
+        total_samples = sum(update["num_samples"] for update in valid_edge_updates)
+        coefficients = [update["num_samples"] / total_samples for update in valid_edge_updates]
+        edge_weight_sets = [update["weights"] for update in valid_edge_updates]
 
         self.global_weights = weighted_average(edge_weight_sets, coefficients)
         set_model_weights(self.global_model, self.global_weights)
 
         if verbose:
-            avg_edge_accuracy = np.mean([update["avg_accuracy"] for update in edge_updates])
-            avg_edge_loss = np.mean([update["avg_loss"] for update in edge_updates])
+            avg_edge_accuracy = np.mean([update["avg_accuracy"] for update in valid_edge_updates])
+            avg_edge_loss = np.mean([update["avg_loss"] for update in valid_edge_updates])
             print(
                 f"[CLOUD LAYER] Global model updated successfully. "
                 f"Edge Avg Accuracy={avg_edge_accuracy:.4f}, Edge Avg Loss={avg_edge_loss:.4f}"
