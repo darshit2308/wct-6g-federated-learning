@@ -138,6 +138,48 @@ def _jain_fairness(selection_counts):
     return float((np.sum(selection_counts) ** 2) / denominator)
 
 
+def _participation_entropy(selection_counts):
+    selection_counts = np.asarray(selection_counts, dtype=float)
+    total = float(np.sum(selection_counts))
+    if total == 0.0:
+        return 0.0
+    probabilities = selection_counts / total
+    non_zero = probabilities[probabilities > 0]
+    max_entropy = np.log(len(selection_counts)) if len(selection_counts) > 1 else 1.0
+    entropy = -np.sum(non_zero * np.log(non_zero))
+    return float(entropy / max(max_entropy, 1e-12))
+
+
+def _participation_gini(selection_counts):
+    selection_counts = np.sort(np.asarray(selection_counts, dtype=float))
+    total = float(np.sum(selection_counts))
+    if total == 0.0:
+        return 0.0
+    n = len(selection_counts)
+    indices = np.arange(1, n + 1)
+    return float(
+        (2.0 * np.sum(indices * selection_counts)) / (n * total) - (n + 1) / n
+    )
+
+
+def _top_selection_share(selection_counts, fraction=0.2):
+    selection_counts = np.asarray(selection_counts, dtype=float)
+    total = float(np.sum(selection_counts))
+    if total == 0.0:
+        return 0.0
+    top_k = max(1, int(np.ceil(len(selection_counts) * fraction)))
+    return float(np.sum(np.sort(selection_counts)[-top_k:]) / total)
+
+
+def _selection_diagnostics(selection_counts):
+    return {
+        "selection_fairness": _jain_fairness(selection_counts),
+        "selection_entropy": _participation_entropy(selection_counts),
+        "participation_gini": _participation_gini(selection_counts),
+        "top_20pct_selection_share": _top_selection_share(selection_counts, fraction=0.2),
+    }
+
+
 def _build_round_record(
     round_num,
     global_metrics,
@@ -153,6 +195,9 @@ def _build_round_record(
     mean_train_time_proxy_ms,
     filtered_updates,
     selection_fairness,
+    selection_entropy,
+    participation_gini,
+    top_20pct_selection_share,
     attack_clients,
     blocked_adversarial,
     accepted_adversarial,
@@ -160,6 +205,8 @@ def _build_round_record(
     security_recall,
     filter_precision,
     benign_retention,
+    mean_reference_cosine,
+    min_reference_cosine,
     topology,
     backhaul_latency_ms,
     edge_compute_latency_ms,
@@ -181,6 +228,13 @@ def _build_round_record(
         "round": round_num,
         "accuracy": global_metrics["accuracy"],
         "loss": global_metrics["loss"],
+        "macro_precision": global_metrics["macro_precision"],
+        "macro_recall": global_metrics["macro_recall"],
+        "macro_f1": global_metrics["macro_f1"],
+        "weighted_f1": global_metrics["weighted_f1"],
+        "balanced_accuracy": global_metrics["balanced_accuracy"],
+        "worst_class_accuracy": global_metrics["worst_class_accuracy"],
+        "class_accuracy_std": global_metrics["class_accuracy_std"],
         "selected_clients": selected_clients,
         "safe_clients": safe_clients,
         "client_uploads": client_uploads,
@@ -197,6 +251,9 @@ def _build_round_record(
         "round_latency_proxy_ms": round_latency_proxy_ms,
         "filtered_updates": filtered_updates,
         "selection_fairness": selection_fairness,
+        "selection_entropy": selection_entropy,
+        "participation_gini": participation_gini,
+        "top_20pct_selection_share": top_20pct_selection_share,
         "attack_clients": attack_clients,
         "blocked_adversarial": blocked_adversarial,
         "accepted_adversarial": accepted_adversarial,
@@ -204,6 +261,8 @@ def _build_round_record(
         "security_recall": security_recall,
         "filter_precision": filter_precision,
         "benign_retention": benign_retention,
+        "mean_reference_cosine": mean_reference_cosine,
+        "min_reference_cosine": min_reference_cosine,
         "communication_reduction": communication_reduction,
         "safe_client_ratio": (safe_clients / selected_clients) if selected_clients else 0.0,
     }
@@ -267,6 +326,7 @@ def _client_stats(clients, method_name, dataset_name, seed):
                     else 0.0
                 ),
                 "selection_freshness_score": client.selection_freshness_score(),
+                "selection_pressure": client.selection_pressure(),
                 "diversity_score": client.data_diversity_score(),
                 "historical_utility": client.historical_utility,
                 "reliability_score": client.reliability_score,
@@ -390,8 +450,13 @@ def run_experiment(config, method_spec):
             benign_retention = (
                 (benign_total - blocked_benign) / benign_total if benign_total > 0 else 1.0
             )
-            selection_fairness = _jain_fairness(
-                [client.selection_count for client in clients]
+            selection_counts = [client.selection_count for client in clients]
+            selection_metrics = _selection_diagnostics(selection_counts)
+            mean_reference_cosine = float(
+                mean(update["mean_reference_cosine"] for update in edge_updates)
+            )
+            min_reference_cosine = float(
+                min(update["min_reference_cosine"] for update in edge_updates)
             )
 
             round_record = _build_round_record(
@@ -408,7 +473,10 @@ def run_experiment(config, method_spec):
                 max_selected_latency_ms=max_selected_latency_ms,
                 mean_train_time_proxy_ms=mean_train_time_proxy_ms,
                 filtered_updates=filtered_updates,
-                selection_fairness=selection_fairness,
+                selection_fairness=selection_metrics["selection_fairness"],
+                selection_entropy=selection_metrics["selection_entropy"],
+                participation_gini=selection_metrics["participation_gini"],
+                top_20pct_selection_share=selection_metrics["top_20pct_selection_share"],
                 attack_clients=attack_clients,
                 blocked_adversarial=blocked_adversarial,
                 accepted_adversarial=accepted_adversarial,
@@ -416,6 +484,8 @@ def run_experiment(config, method_spec):
                 security_recall=security_recall,
                 filter_precision=filter_precision,
                 benign_retention=benign_retention,
+                mean_reference_cosine=mean_reference_cosine,
+                min_reference_cosine=min_reference_cosine,
                 topology=method_spec.topology,
                 backhaul_latency_ms=config.backhaul_latency_ms,
                 edge_compute_latency_ms=config.edge_compute_latency_ms,
@@ -522,9 +592,15 @@ def run_experiment(config, method_spec):
             benign_retention = (
                 (benign_total - blocked_benign) / benign_total if benign_total > 0 else 1.0
             )
-            selection_fairness = _jain_fairness(
-                [client.selection_count for client in clients]
-            )
+            selection_counts = [client.selection_count for client in clients]
+            selection_metrics = _selection_diagnostics(selection_counts)
+            reference_cosines = [update.get("reference_cosine", 1.0) for update in client_updates]
+            if aggregation_summary is not None:
+                mean_reference_cosine = aggregation_summary["mean_reference_cosine"]
+                min_reference_cosine = aggregation_summary["min_reference_cosine"]
+            else:
+                mean_reference_cosine = float(np.mean(reference_cosines)) if reference_cosines else 1.0
+                min_reference_cosine = float(np.min(reference_cosines)) if reference_cosines else 1.0
 
             round_record = _build_round_record(
                 round_num=round_num,
@@ -540,7 +616,10 @@ def run_experiment(config, method_spec):
                 max_selected_latency_ms=max_selected_latency_ms,
                 mean_train_time_proxy_ms=mean_train_time_proxy_ms,
                 filtered_updates=filtered_updates,
-                selection_fairness=selection_fairness,
+                selection_fairness=selection_metrics["selection_fairness"],
+                selection_entropy=selection_metrics["selection_entropy"],
+                participation_gini=selection_metrics["participation_gini"],
+                top_20pct_selection_share=selection_metrics["top_20pct_selection_share"],
                 attack_clients=attack_clients,
                 blocked_adversarial=blocked_adversarial,
                 accepted_adversarial=accepted_adversarial,
@@ -548,6 +627,8 @@ def run_experiment(config, method_spec):
                 security_recall=security_recall,
                 filter_precision=filter_precision,
                 benign_retention=benign_retention,
+                mean_reference_cosine=mean_reference_cosine,
+                min_reference_cosine=min_reference_cosine,
                 topology=method_spec.topology,
                 backhaul_latency_ms=config.backhaul_latency_ms,
                 edge_compute_latency_ms=config.edge_compute_latency_ms,
@@ -557,11 +638,15 @@ def run_experiment(config, method_spec):
 
     final_round = round_history[-1]
     selection_counts = [client.selection_count for client in clients]
+    selection_metrics = _selection_diagnostics(selection_counts)
     best_accuracy = max(record["accuracy"] for record in round_history)
+    best_macro_f1 = max(record["macro_f1"] for record in round_history)
     convergence_threshold = config.convergence_fraction_of_best * best_accuracy
     total_attack_clients = int(sum(record["attack_clients"] for record in round_history))
     total_blocked_adversarial = int(sum(record["blocked_adversarial"] for record in round_history))
+    total_accepted_adversarial = int(sum(record["accepted_adversarial"] for record in round_history))
     total_blocked_benign = int(sum(record["blocked_benign"] for record in round_history))
+    total_filtered_updates = int(sum(record["filtered_updates"] for record in round_history))
     total_benign_selections = int(
         sum(record["selected_clients"] - record["attack_clients"] for record in round_history)
     )
@@ -578,6 +663,17 @@ def run_experiment(config, method_spec):
         "final_accuracy": final_round["accuracy"],
         "final_loss": final_round["loss"],
         "best_accuracy": best_accuracy,
+        "final_macro_precision": final_round["macro_precision"],
+        "final_macro_recall": final_round["macro_recall"],
+        "final_macro_f1": final_round["macro_f1"],
+        "final_weighted_f1": final_round["weighted_f1"],
+        "best_macro_f1": best_macro_f1,
+        "macro_f1_auc": float(mean(record["macro_f1"] for record in round_history)),
+        "final_balanced_accuracy": final_round["balanced_accuracy"],
+        "final_worst_class_accuracy": final_round["worst_class_accuracy"],
+        "mean_worst_class_accuracy": float(
+            mean(record["worst_class_accuracy"] for record in round_history)
+        ),
         "accuracy_gain": final_round["accuracy"] - round_history[0]["accuracy"],
         "loss_drop": round_history[0]["loss"] - final_round["loss"],
         "accuracy_auc": float(mean(record["accuracy"] for record in round_history)),
@@ -607,23 +703,35 @@ def run_experiment(config, method_spec):
         "mean_communication_reduction": float(
             mean(record["communication_reduction"] for record in round_history)
         ),
-        "final_selection_fairness": _jain_fairness(selection_counts),
+        "final_selection_fairness": selection_metrics["selection_fairness"],
+        "final_selection_entropy": selection_metrics["selection_entropy"],
+        "final_participation_gini": selection_metrics["participation_gini"],
+        "top_20pct_selection_share": selection_metrics["top_20pct_selection_share"],
         "client_coverage_ratio": float(
             sum(1 for count in selection_counts if count > 0) / len(selection_counts)
         ),
         "max_selection_count": int(max(selection_counts)),
         "min_selection_count": int(min(selection_counts)),
         "selection_count_std": float(np.std(selection_counts)),
-        "total_filtered_updates": int(sum(record["filtered_updates"] for record in round_history)),
+        "total_filtered_updates": total_filtered_updates,
         "total_attack_clients": total_attack_clients,
         "attack_detection_rate": (
             total_blocked_adversarial / total_attack_clients if total_attack_clients else 0.0
+        ),
+        "attack_escape_rate": (
+            total_accepted_adversarial / total_attack_clients if total_attack_clients else 0.0
+        ),
+        "filter_precision_rate": (
+            total_blocked_adversarial / total_filtered_updates if total_filtered_updates else 0.0
         ),
         "benign_retention_rate": (
             (total_benign_selections - total_blocked_benign) / total_benign_selections
             if total_benign_selections
             else 1.0
         ),
+        "mean_safe_client_ratio": float(mean(record["safe_client_ratio"] for record in round_history)),
+        "mean_reference_cosine": float(mean(record["mean_reference_cosine"] for record in round_history)),
+        "min_reference_cosine": float(min(record["min_reference_cosine"] for record in round_history)),
         "attack_fraction": config.attack_fraction,
     }
 
@@ -650,6 +758,13 @@ def _aggregate_round_records(round_records):
         numeric_fields = [
             "accuracy",
             "loss",
+            "macro_precision",
+            "macro_recall",
+            "macro_f1",
+            "weighted_f1",
+            "balanced_accuracy",
+            "worst_class_accuracy",
+            "class_accuracy_std",
             "selected_clients",
             "safe_clients",
             "client_uploads",
@@ -666,6 +781,9 @@ def _aggregate_round_records(round_records):
             "round_latency_proxy_ms",
             "filtered_updates",
             "selection_fairness",
+            "selection_entropy",
+            "participation_gini",
+            "top_20pct_selection_share",
             "attack_clients",
             "blocked_adversarial",
             "accepted_adversarial",
@@ -673,6 +791,8 @@ def _aggregate_round_records(round_records):
             "security_recall",
             "filter_precision",
             "benign_retention",
+            "mean_reference_cosine",
+            "min_reference_cosine",
             "communication_reduction",
             "safe_client_ratio",
         ]
@@ -701,6 +821,15 @@ def _aggregate_summaries(summaries):
             "final_accuracy",
             "final_loss",
             "best_accuracy",
+            "final_macro_precision",
+            "final_macro_recall",
+            "final_macro_f1",
+            "final_weighted_f1",
+            "best_macro_f1",
+            "macro_f1_auc",
+            "final_balanced_accuracy",
+            "final_worst_class_accuracy",
+            "mean_worst_class_accuracy",
             "accuracy_gain",
             "loss_drop",
             "accuracy_auc",
@@ -717,6 +846,9 @@ def _aggregate_summaries(summaries):
             "total_energy_proxy",
             "mean_communication_reduction",
             "final_selection_fairness",
+            "final_selection_entropy",
+            "final_participation_gini",
+            "top_20pct_selection_share",
             "client_coverage_ratio",
             "max_selection_count",
             "min_selection_count",
@@ -724,7 +856,12 @@ def _aggregate_summaries(summaries):
             "total_filtered_updates",
             "total_attack_clients",
             "attack_detection_rate",
+            "attack_escape_rate",
+            "filter_precision_rate",
             "benign_retention_rate",
+            "mean_safe_client_ratio",
+            "mean_reference_cosine",
+            "min_reference_cosine",
         ]
         for field in numeric_fields:
             values = [summary[field] for summary in method_summaries]
@@ -748,6 +885,7 @@ def _aggregate_client_stats(client_rows):
         "rejected_update_count",
         "acceptance_rate",
         "selection_freshness_score",
+        "selection_pressure",
         "diversity_score",
         "historical_utility",
         "reliability_score",
@@ -772,11 +910,25 @@ def _build_publication_report(aggregated_summaries):
     if not aggregated_summaries:
         return "# Publication Benchmark Report\n\nNo results were exported.\n"
 
-    ranked = sorted(aggregated_summaries, key=lambda item: item["final_accuracy_mean"], reverse=True)
+    ranked = sorted(
+        aggregated_summaries,
+        key=lambda item: (item["final_macro_f1_mean"], item["final_accuracy_mean"]),
+        reverse=True,
+    )
     best_accuracy = ranked[0]
+    best_macro_f1 = max(aggregated_summaries, key=lambda item: item["final_macro_f1_mean"])
     lowest_latency = min(aggregated_summaries, key=lambda item: item["mean_round_latency_proxy_ms_mean"])
     best_fairness = max(aggregated_summaries, key=lambda item: item["final_selection_fairness_mean"])
+    lowest_gini = min(aggregated_summaries, key=lambda item: item["final_participation_gini_mean"])
     strongest_security = max(aggregated_summaries, key=lambda item: item["attack_detection_rate_mean"])
+    best_worst_class = max(
+        aggregated_summaries,
+        key=lambda item: item["final_worst_class_accuracy_mean"],
+    )
+    flat_baseline = next(
+        (summary for summary in aggregated_summaries if summary["method"] == "flat_fedavg_random"),
+        None,
+    )
 
     lines = [
         "# Publication Benchmark Report",
@@ -788,6 +940,10 @@ def _build_publication_report(aggregated_summaries):
             f"{best_accuracy['final_accuracy_mean']:.4f} +- {best_accuracy['final_accuracy_std']:.4f}"
         ),
         (
+            f"- Best macro-F1: `{best_macro_f1['method']}` at "
+            f"{best_macro_f1['final_macro_f1_mean']:.4f}"
+        ),
+        (
             f"- Lowest latency proxy: `{lowest_latency['method']}` at "
             f"{lowest_latency['mean_round_latency_proxy_ms_mean']:.2f} ms"
         ),
@@ -796,38 +952,114 @@ def _build_publication_report(aggregated_summaries):
             f"{best_fairness['final_selection_fairness_mean']:.4f}"
         ),
         (
+            f"- Lowest participation inequality: `{lowest_gini['method']}` at "
+            f"Gini={lowest_gini['final_participation_gini_mean']:.4f}"
+        ),
+        (
+            f"- Strongest worst-class accuracy: `{best_worst_class['method']}` at "
+            f"{best_worst_class['final_worst_class_accuracy_mean']:.4f}"
+        ),
+        (
             f"- Best attack detection: `{strongest_security['method']}` at "
             f"{strongest_security['attack_detection_rate_mean']:.4f}"
         ),
         "",
+    ]
+
+    if flat_baseline is not None:
+        strongest_hierarchical = max(
+            [summary for summary in aggregated_summaries if summary["method"] != "flat_fedavg_random"],
+            key=lambda item: item["final_macro_f1_mean"],
+            default=None,
+        )
+        if strongest_hierarchical is not None and flat_baseline["total_cloud_uploads_mean"] > 0:
+            cloud_upload_reduction = 1.0 - (
+                strongest_hierarchical["total_cloud_uploads_mean"]
+                / flat_baseline["total_cloud_uploads_mean"]
+            )
+            lines.extend(
+                [
+                    "## Baseline Comparison",
+                    "",
+                    (
+                        f"- Strongest hierarchical method vs flat FedAvg: "
+                        f"`{strongest_hierarchical['method']}` improves macro-F1 by "
+                        f"{strongest_hierarchical['final_macro_f1_mean'] - flat_baseline['final_macro_f1_mean']:.4f}"
+                    ),
+                    (
+                        f"- Cloud upload reduction vs flat FedAvg: "
+                        f"{100.0 * cloud_upload_reduction:.2f}%"
+                    ),
+                    (
+                        f"- Worst-class accuracy change vs flat FedAvg: "
+                        f"{strongest_hierarchical['final_worst_class_accuracy_mean'] - flat_baseline['final_worst_class_accuracy_mean']:.4f}"
+                    ),
+                    "",
+                ]
+            )
+
+    lines.extend(
+        [
         "## Method Rankings",
         "",
-    ]
+        ]
+    )
 
     for rank, summary in enumerate(ranked, start=1):
         lines.append(
             (
                 f"{rank}. `{summary['method']}`: accuracy={summary['final_accuracy_mean']:.4f}, "
-                f"gain={summary['accuracy_gain_mean']:.4f}, "
+                f"macro_f1={summary['final_macro_f1_mean']:.4f}, "
+                f"worst_class={summary['final_worst_class_accuracy_mean']:.4f}, "
                 f"bytes={summary['total_payload_bytes_mean']:.0f}, "
                 f"fairness={summary['final_selection_fairness_mean']:.4f}, "
-                f"convergence_round={summary['round_to_convergence_mean']:.2f}"
+                f"gini={summary['final_participation_gini_mean']:.4f}, "
+                f"attack_detect={summary['attack_detection_rate_mean']:.4f}"
             )
         )
 
     lines.extend(
         [
             "",
-            "## Ablation Guide",
+            "## Suggested Paper Tables",
             "",
-            "- `flat_fedavg_random` is the classic flat baseline.",
-            "- `hierarchical_random_fedavg` removes intelligent client selection.",
-            "- `hierarchical_intelligent_fedavg` removes quality-weighted aggregation.",
-            "- `hierarchical_intelligent_no_filter` removes anomaly filtering.",
-            "- `hierarchical_intelligent_no_fairness` removes fairness-aware participation balancing.",
+            "- Table 1: Final accuracy, macro-F1, balanced accuracy, worst-class accuracy, and bytes.",
+            "- Table 2: Fairness metrics including Jain fairness, participation entropy, coverage, and Gini.",
+            "- Table 3: Security metrics including attack detection, attack escape rate, benign retention, and filter precision.",
+            "- Figure 1: Accuracy and macro-F1 by round with seed variance bands.",
+            "- Figure 2: Communication and latency trade-offs across methods.",
+            "- Figure 3: Fairness and participation inequality comparison across methods.",
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _build_latex_summary_table(aggregated_summaries):
+    if not aggregated_summaries:
+        return "% No results available.\n"
+
+    lines = [
+        "\\begin{tabular}{lccccccc}",
+        "\\toprule",
+        "Method & Final Acc. & Macro-F1 & Bal. Acc. & Worst Class & Bytes & Fairness & Atk. Detect \\\\",
+        "\\midrule",
+    ]
+    for summary in aggregated_summaries:
+        method = summary["method"].replace("_", "\\_")
+        lines.append(
+            (
+                f"\\texttt{{{method}}} & "
+                f"{summary['final_accuracy_mean']:.4f} & "
+                f"{summary['final_macro_f1_mean']:.4f} & "
+                f"{summary['final_balanced_accuracy_mean']:.4f} & "
+                f"{summary['final_worst_class_accuracy_mean']:.4f} & "
+                f"{summary['total_payload_bytes_mean']:.0f} & "
+                f"{summary['final_selection_fairness_mean']:.4f} & "
+                f"{summary['attack_detection_rate_mean']:.4f} \\\\"
+            )
+        )
+    lines.extend(["\\bottomrule", "\\end{tabular}", ""])
+    return "\n".join(lines)
 
 
 def _write_csv(path, rows):
@@ -848,6 +1080,7 @@ def export_results(results_dir, config, summaries, round_records, client_rows):
     round_path = results_dir / "round_metrics.csv"
     client_path = results_dir / "client_participation.csv"
     report_path = results_dir / "publication_report.md"
+    summary_table_path = results_dir / "summary_table.tex"
     config_path = results_dir / "config.json"
     raw_path = results_dir / "raw_results.json"
 
@@ -859,6 +1092,10 @@ def export_results(results_dir, config, summaries, round_records, client_rows):
     _write_csv(round_path, aggregated_round_records)
     _write_csv(client_path, aggregated_client_rows)
     report_path.write_text(_build_publication_report(aggregated_summaries), encoding="utf-8")
+    summary_table_path.write_text(
+        _build_latex_summary_table(aggregated_summaries),
+        encoding="utf-8",
+    )
 
     config_payload = asdict(config)
     config_path.write_text(json.dumps(config_payload, indent=2), encoding="utf-8")
@@ -880,6 +1117,7 @@ def export_results(results_dir, config, summaries, round_records, client_rows):
         "round_csv": str(round_path),
         "client_csv": str(client_path),
         "report_md": str(report_path),
+        "summary_table_tex": str(summary_table_path),
         "config_json": str(config_path),
         "raw_json": str(raw_path),
     }
@@ -921,10 +1159,11 @@ def format_summary_table(aggregated_summaries):
     headers = [
         "Method",
         "Final Acc",
-        "Acc Gain",
+        "Macro F1",
         "Bytes",
         "Latency",
         "Fairness",
+        "Gini",
         "Atk Detect",
     ]
     lines = [
@@ -938,10 +1177,11 @@ def format_summary_table(aggregated_summaries):
                 [
                     summary["method"],
                     f"{summary['final_accuracy_mean']:.4f}",
-                    f"{summary['accuracy_gain_mean']:.4f}",
+                    f"{summary['final_macro_f1_mean']:.4f}",
                     f"{summary['total_payload_bytes_mean']:.0f}",
                     f"{summary['mean_round_latency_proxy_ms_mean']:.2f}",
                     f"{summary['final_selection_fairness_mean']:.4f}",
+                    f"{summary['final_participation_gini_mean']:.4f}",
                     f"{summary['attack_detection_rate_mean']:.4f}",
                 ]
             )

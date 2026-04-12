@@ -162,6 +162,8 @@ class DeviceClient:
                 noise = self._rng.normal(loc=0.0, scale=attack_scale, size=layer.shape)
                 attacked_delta.append(layer + noise.astype(layer.dtype))
             return attacked_delta
+        if attack_type == "model_replacement":
+            return [attack_scale * layer for layer in delta]
         return delta
 
     def train_local_model(
@@ -186,6 +188,9 @@ class DeviceClient:
         optimizer = optim.Adam(self.local_model.parameters(), lr=lr)
         batch_size = int(min(64, max(16, self.data_size // 4)))
         estimated_train_steps = int(np.ceil(self.data_size / batch_size) * epochs)
+        is_adversarial = bool(attack_config and attack_config.get("enabled"))
+        attack_type = attack_config.get("attack_type", "sign_flip") if attack_config else "sign_flip"
+        label_flip_attack = is_adversarial and attack_type == "label_flip"
 
         self.local_model.train()
         for _ in range(epochs):
@@ -194,6 +199,8 @@ class DeviceClient:
                 batch_indices = permutation[batch_start : batch_start + batch_size]
                 batch_x = self.train_x[batch_indices]
                 batch_y = self.train_y[batch_indices]
+                if label_flip_attack:
+                    batch_y = (self.model_config.num_classes - 1) - batch_y
 
                 optimizer.zero_grad()
                 outputs = self.local_model(batch_x)
@@ -204,11 +211,10 @@ class DeviceClient:
         updated_weights = get_model_weights(self.local_model)
         delta = compute_weight_delta(base_weights, updated_weights)
 
-        is_adversarial = bool(attack_config and attack_config.get("enabled"))
-        if is_adversarial:
+        if is_adversarial and not label_flip_attack:
             delta = self._apply_attack(
                 delta,
-                attack_type=attack_config.get("attack_type", "sign_flip"),
+                attack_type=attack_type,
                 attack_scale=attack_config.get("attack_scale", 5.0),
             )
             updated_weights = apply_weight_delta(base_weights, delta)
@@ -250,12 +256,14 @@ class DeviceClient:
             "utility_score": float(learning_quality),
             "loss": metrics["loss"],
             "accuracy": metrics["accuracy"],
+            "delta_norm": delta_norm,
             "latency_ms": float(self.network_latency),
             "energy_proxy": float(energy_proxy),
             "train_time_proxy_ms": train_time_proxy_ms,
             "upload_scalars": upload_scalars,
             "battery_level": self.battery_level,
             "is_adversarial": is_adversarial,
+            "attack_type": attack_type if is_adversarial else "none",
             "reliability_score": self.reliability_score,
             "diversity_score": self.data_diversity_score(),
             "freshness_score": self.selection_freshness_score(),

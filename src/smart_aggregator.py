@@ -4,13 +4,39 @@ from model import apply_weight_delta
 
 
 class SmartAggregator:
-    def __init__(self, mad_threshold=3.5, min_updates_for_filtering=4):
+    def __init__(
+        self,
+        mad_threshold=3.5,
+        min_updates_for_filtering=4,
+        cosine_mad_threshold=3.0,
+        cosine_similarity_floor=0.0,
+    ):
         self.mad_threshold = mad_threshold
         self.min_updates_for_filtering = min_updates_for_filtering
+        self.cosine_mad_threshold = cosine_mad_threshold
+        self.cosine_similarity_floor = cosine_similarity_floor
+
+    def _flatten_delta(self, update):
+        return np.concatenate([layer.reshape(-1) for layer in update["delta"]]).astype(np.float64)
+
+    def _attach_geometric_diagnostics(self, client_updates):
+        if not client_updates:
+            return
+
+        flat_deltas = [self._flatten_delta(update) for update in client_updates]
+        reference_delta = np.median(np.vstack(flat_deltas), axis=0)
+        reference_norm = float(np.linalg.norm(reference_delta))
+
+        for update, flat_delta in zip(client_updates, flat_deltas):
+            delta_norm = float(np.linalg.norm(flat_delta))
+            denominator = max(delta_norm * reference_norm, 1e-12)
+            reference_cosine = float(np.dot(flat_delta, reference_delta) / denominator)
+            update["delta_norm"] = delta_norm
+            update["reference_cosine"] = reference_cosine
 
     def detect_outliers(self, client_updates, verbose=True):
         """
-        Remove suspicious client updates using a robust MAD-based norm filter.
+        Remove suspicious client updates using robust norm and direction filters.
         """
         if not client_updates:
             return client_updates, []
@@ -23,38 +49,51 @@ class SmartAggregator:
                 )
             return client_updates, []
 
-        delta_norms = np.array(
-            [
-                np.linalg.norm(
-                    np.concatenate([layer.reshape(-1) for layer in update["delta"]])
-                )
-                for update in client_updates
-            ]
-        )
+        delta_norms = np.array([update["delta_norm"] for update in client_updates])
+        cosine_scores = np.array([update.get("reference_cosine", 1.0) for update in client_updates])
 
         median_norm = float(np.median(delta_norms))
         mad = float(np.median(np.abs(delta_norms - median_norm)))
+        cosine_median = float(np.median(cosine_scores))
+        cosine_mad = float(np.median(np.abs(cosine_scores - cosine_median)))
 
-        if mad == 0.0:
+        if mad == 0.0 and cosine_mad == 0.0:
             if verbose:
                 print(
                     "   [Security] Skipping outlier filtering because update norms are "
-                    "too similar for robust separation."
+                    "and directions are too similar for robust separation."
                 )
             return client_updates, []
 
         safe_updates = []
         removed_updates = []
-        for update, norm in zip(client_updates, delta_norms):
-            robust_z_score = abs(norm - median_norm) / (1.4826 * mad)
-            if robust_z_score <= self.mad_threshold:
+        for update, norm, cosine in zip(client_updates, delta_norms, cosine_scores):
+            norm_flag = False
+            cosine_flag = False
+
+            if mad > 0.0:
+                robust_z_score = abs(norm - median_norm) / (1.4826 * mad)
+                norm_flag = robust_z_score > self.mad_threshold
+
+            if cosine < self.cosine_similarity_floor:
+                cosine_flag = True
+            elif cosine_mad > 0.0 and cosine < cosine_median:
+                cosine_z_score = abs(cosine - cosine_median) / (1.4826 * cosine_mad)
+                cosine_flag = cosine_z_score > self.cosine_mad_threshold
+
+            if not norm_flag and not cosine_flag:
                 safe_updates.append(update)
             else:
                 removed_updates.append(update)
                 if verbose:
+                    reasons = []
+                    if norm_flag:
+                        reasons.append(f"norm={norm:.4f}")
+                    if cosine_flag:
+                        reasons.append(f"cosine={cosine:.4f}")
                     print(
                         f"   [Security] Removed outlier update from {update['client_id']} "
-                        f"(delta_norm={norm:.4f})"
+                        f"({', '.join(reasons)})"
                     )
 
         return safe_updates, removed_updates
@@ -84,6 +123,7 @@ class SmartAggregator:
                 print("No valid client updates to aggregate.")
             return None
 
+        self._attach_geometric_diagnostics(client_updates)
         removed_updates = []
         if use_outlier_filter:
             safe_updates, removed_updates = self.detect_outliers(
@@ -163,5 +203,11 @@ class SmartAggregator:
             "benign_retention": float(benign_retention),
             "mean_quality_score": float(
                 np.mean([update["quality_score"] for update in safe_updates])
+            ),
+            "mean_reference_cosine": float(
+                np.mean([update.get("reference_cosine", 1.0) for update in safe_updates])
+            ),
+            "min_reference_cosine": float(
+                min(update.get("reference_cosine", 1.0) for update in safe_updates)
             ),
         }

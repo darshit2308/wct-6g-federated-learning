@@ -2,10 +2,10 @@
   "dataset_name": "digits",
   "dataset_root": "data",
   "download_dataset": false,
-  "num_clients": 20,
+  "num_clients": 10,
   "num_edges": 2,
-  "clients_per_round": 4,
-  "num_rounds": 10,
+  "clients_per_round": 2,
+  "num_rounds": 2,
   "local_epochs": 2,
   "learning_rate": 0.02,
   "hidden_size": 32,
@@ -22,6 +22,6 @@
   "edge_compute_latency_ms": 2.0,
   "bytes_per_scalar": 4,
   "convergence_fraction_of_best": 0.9,
-  "results_dir": "results",
+  "results_dir": "temp_results",
   "quiet": true
 }

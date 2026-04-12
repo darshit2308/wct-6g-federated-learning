@@ -1,0 +1,12 @@
+\begin{tabular}{lccccccc}
+\toprule
+Method & Final Acc. & Macro-F1 & Bal. Acc. & Worst Class & Bytes & Fairness & Atk. Detect \\
+\midrule
+\texttt{flat\_fedavg\_random} & 0.1011 & 0.0183 & 0.1000 & 0.0000 & 771200 & 0.8804 & 0.0000 \\
+\texttt{hierarchical\_intelligent\_fedavg} & 0.1017 & 0.0186 & 0.0994 & 0.0000 & 964000 & 0.5763 & 0.0000 \\
+\texttt{hierarchical\_intelligent\_no\_fairness} & 0.8422 & 0.8295 & 0.8414 & 0.3868 & 964000 & 0.5980 & 1.0000 \\
+\texttt{hierarchical\_intelligent\_no\_filter} & 0.1150 & 0.0279 & 0.1161 & 0.0000 & 964000 & 0.8957 & 0.0000 \\
+\texttt{hierarchical\_random\_fedavg} & 0.0917 & 0.0168 & 0.1000 & 0.0000 & 964000 & 0.8485 & 0.0000 \\
+\texttt{proposed} & 0.8756 & 0.8697 & 0.8748 & 0.4962 & 964000 & 0.9047 & 1.0000 \\
+\bottomrule
+\end{tabular}

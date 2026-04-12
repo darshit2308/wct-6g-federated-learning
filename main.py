@@ -56,7 +56,11 @@ def parse_args():
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed used in single-run mode.")
     parser.add_argument("--attack-fraction", type=float, default=0.0, help="Fraction of selected clients that behave adversarially.")
-    parser.add_argument("--attack-type", choices=["sign_flip", "gaussian_noise"], default="sign_flip")
+    parser.add_argument(
+        "--attack-type",
+        choices=["sign_flip", "gaussian_noise", "label_flip", "model_replacement"],
+        default="sign_flip",
+    )
     parser.add_argument("--attack-scale", type=float, default=5.0)
     parser.add_argument("--results-dir", default="results")
     parser.add_argument("--quiet", action="store_true", help="Reduce per-round logging.")
@@ -95,12 +99,17 @@ def main():
         print(f"Method: {summary['method']}")
         print(f"Dataset: {summary['dataset']}")
         print(f"Final Accuracy: {summary['final_accuracy']:.4f}")
+        print(f"Final Macro-F1: {summary['final_macro_f1']:.4f}")
+        print(f"Final Balanced Accuracy: {summary['final_balanced_accuracy']:.4f}")
+        print(f"Worst-Class Accuracy: {summary['final_worst_class_accuracy']:.4f}")
         print(f"Final Loss: {summary['final_loss']:.4f}")
         print(f"Accuracy Gain: {summary['accuracy_gain']:.4f}")
         print(f"Total Payload Bytes: {summary['total_payload_bytes']}")
         print(f"Latency Proxy: {summary['mean_round_latency_proxy_ms']:.2f} ms")
         print(f"Selection Fairness: {summary['final_selection_fairness']:.4f}")
+        print(f"Participation Gini: {summary['final_participation_gini']:.4f}")
         print(f"Attack Detection Rate: {summary['attack_detection_rate']:.4f}")
+        print(f"Benign Retention Rate: {summary['benign_retention_rate']:.4f}")
         return
 
     method_names = [method.strip() for method in args.methods.split(",") if method.strip()]

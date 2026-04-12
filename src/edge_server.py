@@ -34,12 +34,29 @@ class EdgeServer:
         self.selection_model = self._build_selection_model(random_state=random_state)
         self._rng = np.random.default_rng(random_state)
 
-    def _adjusted_selection_score(self, client, probability):
+    def _selection_features(self, client):
+        return np.array(
+            [
+                [
+                    client.battery_level,
+                    client.network_latency,
+                    client.data_size,
+                    client.reliability_score,
+                    client.data_diversity_score(),
+                    client.selection_freshness_score(),
+                ]
+            ]
+        )
+
+    def _adjusted_selection_score(self, client, probability, mean_selection_count):
         system_score = client.system_quality_score()
         diversity_bonus = client.data_diversity_score()
         reliability_bonus = client.reliability_score
         freshness_bonus = client.selection_freshness_score()
         fairness_bonus = 1.0 / (1.0 + client.selection_count)
+        coverage_bonus = 1.0 if client.selection_count == 0 else 0.0
+        participation_gap = max(mean_selection_count - client.selection_count, 0.0)
+        normalized_gap = participation_gap / max(mean_selection_count + 1.0, 1.0)
 
         if self.selection_strategy == "intelligent":
             return (
@@ -51,12 +68,14 @@ class EdgeServer:
 
         if self.selection_strategy == "fairness_aware":
             return (
-                0.38 * probability
-                + 0.14 * diversity_bonus
-                + 0.14 * system_score
-                + 0.14 * reliability_bonus
-                + 0.20 * freshness_bonus * self.fairness_temperature
-                + 0.10 * fairness_bonus * self.fairness_temperature
+                0.34 * probability
+                + 0.12 * diversity_bonus
+                + 0.12 * system_score
+                + 0.12 * reliability_bonus
+                + 0.14 * freshness_bonus * self.fairness_temperature
+                + 0.08 * fairness_bonus * self.fairness_temperature
+                + 0.08 * normalized_gap * self.fairness_temperature
+                + 0.10 * coverage_bonus * self.fairness_temperature
             )
 
         raise ValueError(f"Unsupported selection strategy: {self.selection_strategy}")
@@ -70,14 +89,22 @@ class EdgeServer:
             battery = rng.integers(10, 101)
             latency = rng.integers(5, 201)
             data_size = rng.integers(100, 5001)
+            reliability = rng.uniform(0.5, 1.0)
+            diversity = rng.uniform(0.1, 1.0)
+            freshness = rng.uniform(0.0, 1.0)
 
             rule_score = (
-                0.45 * (battery / 100.0)
-                + 0.35 * (1.0 - latency / 200.0)
-                + 0.20 * (data_size / 1000.0)
+                0.28 * (battery / 100.0)
+                + 0.22 * (1.0 - latency / 200.0)
+                + 0.18 * min(data_size / 1000.0, 1.0)
+                + 0.14 * reliability
+                + 0.10 * diversity
+                + 0.08 * freshness
             )
 
-            training_examples.append([battery, latency, data_size])
+            training_examples.append(
+                [battery, latency, data_size, reliability, diversity, freshness]
+            )
             labels.append(1 if rule_score >= 0.58 else 0)
 
         model = Pipeline(
@@ -94,6 +121,7 @@ class EdgeServer:
             client.simulate_round_conditions()
 
     def select_clients(self, clients, required_clients=5, verbose=True):
+        required_clients = min(required_clients, len(clients))
         if self.selection_strategy == "random":
             selected_clients = list(
                 self._rng.choice(clients, size=required_clients, replace=False)
@@ -107,12 +135,17 @@ class EdgeServer:
             print(f"\n[Edge {self.edge_id}] Running intelligent client selection...")
 
         scored_clients = []
+        mean_selection_count = float(
+            np.mean([client.selection_count for client in clients])
+        ) if clients else 0.0
         for client in clients:
-            features = np.array(
-                [[client.battery_level, client.network_latency, client.data_size]]
-            )
+            features = self._selection_features(client)
             probability = self.selection_model.predict_proba(features)[0][1]
-            adjusted_score = self._adjusted_selection_score(client, probability)
+            adjusted_score = self._adjusted_selection_score(
+                client,
+                probability,
+                mean_selection_count=mean_selection_count,
+            )
             scored_clients.append((adjusted_score, client, probability))
             if verbose:
                 print(
@@ -125,7 +158,23 @@ class EdgeServer:
                 )
 
         scored_clients.sort(key=lambda item: item[0], reverse=True)
-        selected_clients = [client for _, client, _ in scored_clients[:required_clients]]
+        if self.selection_strategy == "fairness_aware":
+            score_values = np.array(
+                [max(score, 1e-6) for score, _, _ in scored_clients],
+                dtype=float,
+            )
+            probabilities = score_values / score_values.sum()
+            selected_indices = self._rng.choice(
+                len(scored_clients),
+                size=required_clients,
+                replace=False,
+                p=probabilities,
+            )
+            selected_clients = [scored_clients[index][1] for index in selected_indices]
+            score_lookup = {client.client_id: score for score, client, _ in scored_clients}
+            selected_clients.sort(key=lambda client: score_lookup[client.client_id], reverse=True)
+        else:
+            selected_clients = [client for _, client, _ in scored_clients[:required_clients]]
         if verbose:
             print(f"Selected Clients: {[client.client_id for client in selected_clients]}")
         return selected_clients
@@ -190,6 +239,7 @@ class EdgeServer:
         )
 
         if edge_summary is None:
+            reference_cosines = [update.get("reference_cosine", 1.0) for update in client_updates]
             for client in selected_clients:
                 client_update = next(update for update in client_updates if update["client_id"] == client.client_id)
                 client.update_after_round(client_update, accepted=False)
@@ -233,6 +283,8 @@ class EdgeServer:
                 "cloud_uploads": 0,
                 "payload_to_edge_scalars": int(sum(update["upload_scalars"] for update in client_updates)),
                 "payload_to_cloud_scalars": 0,
+                "mean_reference_cosine": float(np.mean(reference_cosines)) if reference_cosines else 1.0,
+                "min_reference_cosine": float(np.min(reference_cosines)) if reference_cosines else 1.0,
             }
 
         accepted_ids = set(edge_summary["client_ids"])

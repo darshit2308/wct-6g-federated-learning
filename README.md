@@ -8,9 +8,10 @@ The main purpose of the project is to demonstrate how hierarchical federated lea
 
 - intelligent client selection at the edge
 - weighted aggregation based on device quality and contribution
-- secure filtering of suspicious client updates
+- secure filtering of suspicious client updates using norm and directional consistency
 - iterative cloud-to-edge-to-device model propagation
 - measurable round-wise global improvement
+- publication-grade benchmark exports with macro-F1, balanced accuracy, worst-class accuracy, fairness inequality, and security metrics
 
 This repository is intentionally designed as a simulation prototype rather than a production telecom platform. Even so, the codebase implements the essential learning flow correctly and is suitable for academic demonstration, explanation, and further extension.
 
@@ -38,6 +39,7 @@ The objective of this project is to build a complete simulation that demonstrate
 3. weighted model aggregation that considers both sample volume and device quality
 4. robust update screening before edge aggregation
 5. round-wise global evaluation to observe convergence behavior
+6. benchmark exports that support direct paper tables and plots
 
 ## 4. Conceptual Architecture
 
@@ -83,7 +85,7 @@ This reflects the idea that practical federated systems should prefer clients th
 
 ### 5.2 Edge-Side Robustness
 
-Before aggregation, the edge server examines client update magnitudes. A robust median absolute deviation strategy is used for anomaly screening, but only when enough client updates are available to make the estimate meaningful. This is important because aggressive filtering with very small sample counts can look arbitrary and can hurt credibility.
+Before aggregation, the edge server examines both client update magnitudes and update directions. A hybrid robust filter combines median absolute deviation screening on update norms with cosine-consistency checks against the edge consensus direction, but only when enough client updates are available to make the estimate meaningful. This is important because aggressive filtering with very small sample counts can look arbitrary and can hurt credibility.
 
 ### 5.3 Weighted Aggregation
 
@@ -114,6 +116,9 @@ The implementation includes:
 - proper model propagation across rounds
 - update-based aggregation instead of unrelated raw model averaging
 - global evaluation after each round
+- macro-F1, balanced accuracy, and worst-class accuracy tracking
+- fairness exports including Jain fairness, coverage, entropy, and Gini inequality
+- security exports including attack detection, attack escape, benign retention, and filter precision
 - readable console traces for presentation and debugging
 
 ## 7. Repository Structure
@@ -238,6 +243,15 @@ When the project is run successfully, the console output should show:
 
 The expected trend is not perfect accuracy in only a few rounds. Instead, the most realistic expectation is gradual improvement in global accuracy and gradual reduction in loss. That behavior indicates that the hierarchical training loop is functioning coherently.
 
+For publication-oriented benchmarking, the stronger reading is to compare methods on:
+
+- final accuracy and macro-F1
+- balanced accuracy and worst-class accuracy
+- communication bytes and cloud uploads
+- latency and energy proxies
+- fairness, coverage, entropy, and Gini inequality
+- attack detection, attack escape rate, and benign retention
+
 ## 12. Why the Output Is Credible
 
 The output becomes credible because the model is no longer static from round to round. In this implementation:
@@ -280,6 +294,13 @@ Run an adversarial benchmark with:
 py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type sign_flip
 ```
 
+Run stronger poisoning benchmarks with label flipping or model replacement:
+
+```bash
+py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type label_flip
+py -3 main.py --mode suite --dataset digits --attack-fraction 0.25 --attack-type model_replacement
+```
+
 Generate plots from exported CSV files with:
 
 ```bash
@@ -295,6 +316,7 @@ The project uses the following major libraries:
 - `numpy`
 - `pandas`
 - `scikit-learn`
+- `matplotlib`
 - `flwr`
 
 Note: `flwr` is included as a relevant federated learning ecosystem dependency, although the present simulation uses a custom orchestration flow rather than the Flower runtime.
@@ -331,8 +353,9 @@ This project now already supports several strong research extensions:
 - repeated multi-seed benchmarking
 - real benchmark datasets such as Digits, MNIST, Fashion-MNIST, and CIFAR-10
 - fairness-aware client participation balancing
-- adversarial update injection and filtering metrics
-- communication, latency, energy, convergence, and participation exports
+- adversarial update injection through sign-flip, Gaussian-noise, label-flip, and model-replacement attacks
+- communication, latency, energy, convergence, class-balance, security, and participation exports
+- auto-generated markdown reports and a LaTeX summary table for paper writing
 
 Additional future work can still include:
 

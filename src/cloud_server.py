@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import balanced_accuracy_score, precision_recall_fscore_support
 
 from model import build_model, get_model_weights, set_model_weights, weighted_average
 
@@ -67,8 +68,41 @@ class CloudServer:
             predictions = outputs.argmax(dim=1)
             accuracy = (predictions == evaluation_y).float().mean().item()
 
+        predictions_np = predictions.detach().cpu().numpy()
+        evaluation_y_np = evaluation_y.detach().cpu().numpy()
+        macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+            evaluation_y_np,
+            predictions_np,
+            average="macro",
+            zero_division=0,
+        )
+        _, _, weighted_f1, _ = precision_recall_fscore_support(
+            evaluation_y_np,
+            predictions_np,
+            average="weighted",
+            zero_division=0,
+        )
+        balanced_accuracy = balanced_accuracy_score(evaluation_y_np, predictions_np)
+
+        class_accuracies = []
+        for class_index in range(self.model_config.num_classes):
+            class_mask = evaluation_y_np == class_index
+            if not np.any(class_mask):
+                class_accuracies.append(0.0)
+                continue
+            class_accuracies.append(
+                float(np.mean(predictions_np[class_mask] == evaluation_y_np[class_mask]))
+            )
+
         return {
             "loss": loss,
             "accuracy": accuracy,
+            "macro_precision": float(macro_precision),
+            "macro_recall": float(macro_recall),
+            "macro_f1": float(macro_f1),
+            "weighted_f1": float(weighted_f1),
+            "balanced_accuracy": float(balanced_accuracy),
+            "worst_class_accuracy": float(min(class_accuracies)),
+            "class_accuracy_std": float(np.std(class_accuracies)),
             "num_samples": total_samples,
         }
