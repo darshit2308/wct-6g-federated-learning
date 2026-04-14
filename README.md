@@ -1,401 +1,80 @@
-# Adaptive Hierarchical Federated Learning Framework for 6G Edge Networks
+#  Adaptive Hierarchical Federated Learning (6G Edge)
 
-## 1. Project Overview
+## 📌 Overview
+This project simulates a **hierarchical federated learning system** designed for future 6G networks.
 
-This project presents a structured simulation of a hierarchical federated learning framework designed for a 6G-inspired edge intelligence setting. The system models a three-layer learning pipeline in which device clients train locally, edge servers perform intermediate intelligence and aggregation, and a cloud server performs the final global update.
+Instead of sending all data to a central server:
+- Devices train locally
+- Edge servers coordinate nearby devices
+- Cloud combines updates into a global model
 
-The main purpose of the project is to demonstrate how hierarchical federated learning can be made more practical for future ultra-dense wireless environments by introducing:
+The goal is to make federated learning more **scalable, efficient, and secure**.
 
-- intelligent client selection at the edge
-- weighted aggregation based on device quality and contribution
-- secure filtering of suspicious client updates using norm and directional consistency
-- iterative cloud-to-edge-to-device model propagation
-- measurable round-wise global improvement
-- publication-grade benchmark exports with macro-F1, balanced accuracy, worst-class accuracy, fairness inequality, and security metrics
+---
 
-This repository is intentionally designed as a simulation prototype rather than a production telecom platform. Even so, the codebase implements the essential learning flow correctly and is suitable for academic demonstration, explanation, and further extension.
+## 🚨 Problem
+Traditional federated learning has issues:
+- Devices are unreliable (battery, latency, data)
+- Too many clients overload the cloud
+- Malicious or poor updates can harm training
 
-## 2. Problem Statement
+---
 
-Classical federated learning is attractive because it keeps raw data on user devices, but it also introduces practical challenges in large-scale distributed systems:
+## 💡 Solution
+This project introduces a **3-layer system**:
 
-- not all clients are equally reliable
-- devices vary in battery level, latency, and data availability
-- central aggregation becomes expensive when many clients communicate directly with a cloud server
-- malicious, noisy, or low-quality updates can destabilize training
+**Device → Edge → Cloud**
 
-In a 6G environment with extremely dense device populations and edge-native intelligence, a purely flat federated topology is not ideal. This project addresses that limitation with a hierarchical design:
+With improvements:
+- Smart client selection (based on device quality)
+- Weighted aggregation (better devices contribute more)
+- Secure filtering (removes bad updates)
+- Gradual global model improvement
 
-- devices train locally
-- edge servers coordinate regional learning
-- the cloud performs cross-edge synchronization
+---
 
-## 3. Objective of the Work
+## 🧠 How It Works
 
-The objective of this project is to build a complete simulation that demonstrates the following research-inspired ideas in one coherent workflow:
+Each training round:
+1. Cloud sends global model
+2. Edge selects best devices
+3. Devices train locally
+4. Devices send updates
+5. Edge filters bad updates
+6. Edge aggregates updates
+7. Cloud updates global model
 
-1. hierarchical federated learning over device, edge, and cloud layers
-2. intelligent edge-side client selection instead of naive or purely random participation
-3. weighted model aggregation that considers both sample volume and device quality
-4. robust update screening before edge aggregation
-5. round-wise global evaluation to observe convergence behavior
-6. benchmark exports that support direct paper tables and plots
+Repeat → model improves over time
 
-## 4. Conceptual Architecture
+---
 
-The framework follows a three-tier structure.
+## ⚙️ Features
+- Intelligent client selection
+- Weighted aggregation
+- Secure update filtering
+- Non-IID data simulation
+- Round-wise evaluation
+- Metrics tracking:
+  - Accuracy
+  - Macro-F1
+  - Fairness
+  - Security metrics
 
-### 4.1 Device Layer
+---
 
-Each device represents a simulated mobile, IoT, or user-end node. A device contains:
-
-- local data
-- a local copy of the model
-- device state variables such as battery level, latency, and data size
-
-At the beginning of a round, the device receives the latest global model. It then performs local training on its own dataset and sends only model updates back to the edge server.
-
-### 4.2 Edge Layer
-
-Each edge server represents a regional 6G intelligent access node or intermediate compute layer. Its responsibilities include:
-
-- evaluating available clients
-- selecting the most suitable participants for the current round
-- collecting locally trained updates
-- filtering suspicious updates
-- performing weighted regional aggregation
-
-This layer is the core intelligence layer of the project.
-
-### 4.3 Cloud Layer
-
-The cloud acts as the global coordinator. It receives the aggregated edge models, combines them into a single updated global model, and evaluates the model across the full distributed client population.
-
-## 5. Key Design Choices
-
-### 5.1 Intelligent Client Selection
-
-Instead of random selection, edge servers rank devices using a lightweight learned model based on:
-
-- battery level
-- network latency
-- local data size
-
-This reflects the idea that practical federated systems should prefer clients that are both resource-capable and likely to contribute meaningful learning progress.
-
-### 5.2 Edge-Side Robustness
-
-Before aggregation, the edge server examines both client update magnitudes and update directions. A hybrid robust filter combines median absolute deviation screening on update norms with cosine-consistency checks against the edge consensus direction, but only when enough client updates are available to make the estimate meaningful. This is important because aggressive filtering with very small sample counts can look arbitrary and can hurt credibility.
-
-### 5.3 Weighted Aggregation
-
-Client updates are not treated equally. Each selected client contributes according to:
-
-- number of local samples
-- battery condition
-- latency condition
-- local data contribution score
-
-This makes the aggregation more realistic than a plain unweighted average.
-
-### 5.4 Hierarchical Global Update
-
-After edge aggregation, the cloud combines regional models using sample-weighted averaging. The final global model is then sent into the next training round.
-
-This closes the federated learning loop correctly.
-
-## 6. What Makes This Project Strong
-
-This project is stronger than a minimal toy demo because it includes the full end-to-end training cycle and not just isolated components.
-
-The implementation includes:
-
-- deterministic seeding for reproducible behavior
-- round-wise device condition changes
-- non-identical local datasets across clients
-- proper model propagation across rounds
-- update-based aggregation instead of unrelated raw model averaging
-- global evaluation after each round
-- macro-F1, balanced accuracy, and worst-class accuracy tracking
-- fairness exports including Jain fairness, coverage, entropy, and Gini inequality
-- security exports including attack detection, attack escape, benign retention, and filter precision
-- readable console traces for presentation and debugging
-
-## 7. Repository Structure
-
+## 📂 Project Structure
 ```text
 wct-6g-federated-learning/
 ├── main.py
 ├── requirements.txt
-├── README.md
 ├── visualize_results.py
 ├── docs/
 │   └── research_paper.tex
 └── src/
     ├── client_device.py
-    ├── cloud_server.py
-    ├── data_utils.py
     ├── edge_server.py
-    ├── experiment_runner.py
+    ├── cloud_server.py
     ├── model.py
-    └── smart_aggregator.py
-```
-
-## 8. File-by-File Explanation
-
-### `main.py`
-
-This is the simulation entry point. It:
-
-- runs either a single method or a full benchmark suite
-- exposes the publication benchmark profile through CLI arguments
-- prints multi-metric summaries for clean and attack-aware evaluation
-- exports benchmark artifacts through the experiment runner
-
-### `src/model.py`
-
-This file defines the neural network and helper functions for:
-
-- extracting weights
-- loading weights
-- cloning weights
-- computing update deltas
-- applying deltas
-- performing weighted averaging
-
-### `src/client_device.py`
-
-This file models a participating device. It:
-
-- simulates changing battery and latency conditions across rounds
-- trains the local model using the incoming global model
-- computes the client delta
-- evaluates the updated local model
-- tracks historical utility, freshness, and reliability
-- supports adversarial behaviors such as sign-flip and label-flip updates
-- returns metrics and contribution metadata to the edge
-
-### `src/edge_server.py`
-
-This file models the edge intelligence layer. It:
-
-- creates a lightweight client-selection model
-- evaluates clients each round
-- supports random, intelligent, and fairness-aware selection
-- launches local client training
-- invokes secure filtering
-- performs regional aggregation
-- reports round summaries for presentation
-
-### `src/data_utils.py`
-
-This file builds the client datasets. It:
-
-- creates synthetic non-IID client data
-- partitions benchmark datasets such as Digits, MNIST, Fashion-MNIST, and CIFAR-10
-- applies Dirichlet partitioning to create heterogeneous federated splits
-- prepares the shared global evaluation tensors
-
-### `src/experiment_runner.py`
-
-This file is the benchmark engine. It:
-
-- defines the benchmark methods and ablations
-- runs repeated multi-seed experiments
-- aggregates summary metrics and round metrics
-- exports CSV, JSON, markdown reports, and LaTeX tables for the paper
-
-### `src/smart_aggregator.py`
-
-This file implements the edge aggregation logic. It:
-
-- screens suspicious client updates
-- avoids unreliable filtering when too few updates are available
-- computes weighted regional aggregation
-- returns edge-level metrics and the aggregated regional model
-
-### `src/cloud_server.py`
-
-This file implements cloud coordination. It:
-
-- receives regional edge models
-- performs hierarchical sample-weighted aggregation
-- updates the global model
-- evaluates the global model over all client datasets
-
-## 9. Workflow of One Training Round
-
-The flow of one full round is:
-
-1. the cloud holds the latest global model
-2. each edge server inspects the condition of its local client pool
-3. the edge selects the most suitable clients for participation
-4. selected devices receive the current global model
-5. each selected device performs local training on its own data
-6. the edge receives the updated client models and computes update deltas
-7. suspicious updates are filtered when enough evidence exists
-8. the edge aggregates safe updates into a regional model
-9. the cloud combines all edge models into a new global model
-10. the new global model is evaluated and used for the next round
-
-## 10. Dataset Strategy Used in This Simulation
-
-This project supports both synthetic and real benchmark datasets.
-
-- `synthetic` keeps the project self-contained and easy to explain
-- `digits` is the strongest no-download benchmark and is the recommended default for publication-style evaluation
-- `mnist`, `fashion_mnist`, and `cifar10` are supported through `torchvision`
-
-Each client receives a non-identical data distribution through client-specific generation or Dirichlet partitioning, which makes the environment meaningfully federated rather than iid.
-
-## 11. Experimental Behavior
-
-When the project is run successfully, the console output should show:
-
-- client ranking at each edge
-- selected clients for the round
-- local training activity
-- edge aggregation summaries
-- cloud aggregation summaries
-- global accuracy and loss after each round
-- a final summary of improvement over all rounds
-
-The expected trend is not perfect accuracy in only a few rounds. Instead, the most realistic expectation is gradual improvement in global accuracy and gradual reduction in loss. That behavior indicates that the hierarchical training loop is functioning coherently.
-
-For publication-oriented benchmarking, the stronger reading is to compare methods on:
-
-- final accuracy and macro-F1
-- balanced accuracy and worst-class accuracy
-- communication bytes and cloud uploads
-- latency and energy proxies
-- fairness, coverage, entropy, and Gini inequality
-- attack detection, attack escape rate, and benign retention
-
-## 12. Why the Output Is Credible
-
-The output becomes credible because the model is no longer static from round to round. In this implementation:
-
-- clients do not train from unrelated random starting states every round
-- the global model is propagated correctly
-- device conditions evolve across rounds
-- aggregation uses explicit update logic
-- evaluation is performed at the global level
-
-This makes the round-wise output meaningful rather than decorative.
-
-## 13. Installation
-
-Create and activate a virtual environment, then install the required packages.
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-## 14. How to Run
-
-Run the publication-profile benchmark suite on the strongest no-download real dataset with:
-
-```bash
-python main.py
-```
-
-Run a single method quickly with:
-
-```bash
-python main.py --mode single --method proposed
-```
-
-Run an adversarial benchmark with:
-
-```bash
-python main.py --mode suite --attack-fraction 0.25 --attack-type sign_flip
-```
-
-Run stronger poisoning benchmarks with label flipping or model replacement:
-
-```bash
-python main.py --mode suite --attack-fraction 0.25 --attack-type label_flip
-python main.py --mode suite --attack-fraction 0.25 --attack-type model_replacement
-```
-
-Generate plots from exported CSV files with:
-
-```bash
-python visualize_results.py --results-dir results
-```
-
-## 15. Dependencies
-
-The project uses the following major libraries:
-
-- `torch`
-- `torchvision`
-- `numpy`
-- `pandas`
-- `scikit-learn`
-- `matplotlib`
-- `flwr`
-
-Note: `flwr` is included as a relevant federated learning ecosystem dependency, although the present simulation uses a custom orchestration flow rather than the Flower runtime.
-
-## 16. Interpretation of Results
-
-If the output shows improving global accuracy and decreasing loss over rounds, you can explain it as evidence that:
-
-- the hierarchical training loop is functioning correctly
-- edge-side aggregation is contributing useful regional updates
-- the global model is converging gradually
-- the selected clients are contributing useful signal
-
-This is a strong academic message for a project demonstration.
-
-## 17. Current Scope and Honest Limitations
-
-This project is a robust simulation prototype, but it is important to describe it honestly.
-
-Current limitations include:
-
-- wireless behavior is represented through latency and energy proxies rather than a full radio simulator
-- the selector is a lightweight learned scorer rather than a reinforcement or bandit-based policy
-- no asynchronous client participation or secure aggregation is implemented yet
-- publication-grade claims still depend on running broader sweeps in your own environment
-
-These limitations do not weaken the value of the project as a course or academic prototype. In fact, stating them clearly usually improves credibility.
-
-## 18. Future Enhancement Opportunities
-
-This project now already supports several strong research extensions:
-
-- flat FedAvg and hierarchical ablation baselines
-- repeated multi-seed benchmarking
-- real benchmark datasets such as Digits, MNIST, Fashion-MNIST, and CIFAR-10
-- fairness-aware client participation balancing
-- adversarial update injection through sign-flip, Gaussian-noise, label-flip, and model-replacement attacks
-- communication, latency, energy, convergence, class-balance, security, and participation exports
-- auto-generated markdown reports and a LaTeX summary table for paper writing
-
-Additional future work can still include:
-
-- dropout-aware and asynchronous participation
-- stronger trust-history modeling
-- secure aggregation and differential privacy
-- richer wireless scheduling and cross-layer simulation
-
-## 19. Suggested Presentation Narrative
-
-A strong way to present this project is:
-
-1. start with the limitation of flat federated learning in dense 6G environments
-2. explain the need for hierarchical coordination
-3. show the three-layer architecture
-4. highlight intelligent client selection and robust aggregation as the core innovations
-5. run the simulation and show improving accuracy and decreasing loss
-6. conclude with the significance of edge intelligence in scalable future networks
-
-## 20. Final Summary
-
-This project demonstrates a complete simulation of adaptive hierarchical federated learning for a 6G-inspired environment. It combines local privacy-preserving training, regional edge intelligence, weighted and robust aggregation, and global cloud synchronization in one structured implementation.
-
-The codebase is readable, reproducible, modular, and suitable for explanation in an academic setting. It shows clear engineering effort, conceptual understanding, and practical implementation work across machine learning, distributed systems, and edge intelligence themes.
+    ├── data_utils.py
+    ├── smart_aggregator.py
+    └── experiment_runner.py
