@@ -98,8 +98,73 @@ class SmartAggregator:
 
         return safe_updates, removed_updates
 
+    def _unflatten_delta(self, flat_vector, template_delta):
+        unflattened = []
+        idx = 0
+        for layer in template_delta:
+            size = layer.size
+            unflattened.append(
+                flat_vector[idx : idx + size].reshape(layer.shape).astype(layer.dtype)
+            )
+            idx += size
+        return unflattened
+
+    def _krum_aggregate(self, client_updates, num_byzantine=None):
+        """
+        Krum aggregation rule (Blanchard et al., NeurIPS 2017).
+        Selects the single update minimizing the sum of squared distances to its m - f - 2 closest neighbors.
+        """
+        m = len(client_updates)
+        if m <= 2:
+            return client_updates[0]["delta"]
+
+        if num_byzantine is None:
+            f = max(1, int(np.floor((m - 1) / 3)))
+        else:
+            f = num_byzantine
+
+        k = max(1, min(m - f - 2, m - 1))
+        flat_deltas = [self._flatten_delta(u) for u in client_updates]
+        dist_matrix = np.zeros((m, m))
+        for i in range(m):
+            for j in range(i + 1, m):
+                d = float(np.sum((flat_deltas[i] - flat_deltas[j]) ** 2))
+                dist_matrix[i, j] = d
+                dist_matrix[j, i] = d
+
+        scores = []
+        for i in range(m):
+            dists = np.sort(np.delete(dist_matrix[i], i))
+            scores.append(float(np.sum(dists[:k])))
+
+        best_idx = int(np.argmin(scores))
+        return client_updates[best_idx]["delta"]
+
+    def _trimmed_mean_aggregate(self, client_updates, trim_ratio=0.15):
+        """
+        Coordinate-wise Trimmed Mean aggregation (Yin et al., ICML 2018).
+        Removes the smallest and largest beta fraction along each coordinate.
+        """
+        m = len(client_updates)
+        if m <= 2:
+            return client_updates[0]["delta"]
+
+        flat_deltas = np.vstack([self._flatten_delta(u) for u in client_updates])
+        k = int(np.floor(m * trim_ratio))
+        if 2 * k >= m:
+            k = max(0, (m - 1) // 2)
+
+        if k == 0:
+            aggregated_flat = np.mean(flat_deltas, axis=0)
+        else:
+            sorted_deltas = np.sort(flat_deltas, axis=0)
+            trimmed = sorted_deltas[k : m - k, :]
+            aggregated_flat = np.mean(trimmed, axis=0)
+
+        return self._unflatten_delta(aggregated_flat, client_updates[0]["delta"])
+
     def _client_weight(self, update, aggregation_strategy):
-        if aggregation_strategy == "uniform":
+        if aggregation_strategy in ["uniform", "krum", "trimmed_mean"]:
             return 1.0
         if aggregation_strategy == "fedavg":
             return float(update["num_samples"])
@@ -141,18 +206,23 @@ class SmartAggregator:
             return None
 
         if verbose:
-            print(f"Aggregating {len(safe_updates)} safe client updates...")
+            print(f"Aggregating {len(safe_updates)} safe client updates via {aggregation_strategy}...")
 
-        raw_weights = [
-            self._client_weight(update, aggregation_strategy) for update in safe_updates
-        ]
-        total_weight = sum(raw_weights)
-        normalized_weights = [weight / total_weight for weight in raw_weights]
+        if aggregation_strategy == "krum":
+            aggregated_delta = self._krum_aggregate(safe_updates)
+        elif aggregation_strategy == "trimmed_mean":
+            aggregated_delta = self._trimmed_mean_aggregate(safe_updates)
+        else:
+            raw_weights = [
+                self._client_weight(update, aggregation_strategy) for update in safe_updates
+            ]
+            total_weight = sum(raw_weights)
+            normalized_weights = [weight / total_weight for weight in raw_weights]
 
-        aggregated_delta = [np.zeros_like(layer) for layer in safe_updates[0]["delta"]]
-        for ratio, update in zip(normalized_weights, safe_updates):
-            for layer_index, delta_layer in enumerate(update["delta"]):
-                aggregated_delta[layer_index] += delta_layer * ratio
+            aggregated_delta = [np.zeros_like(layer) for layer in safe_updates[0]["delta"]]
+            for ratio, update in zip(normalized_weights, safe_updates):
+                for layer_index, delta_layer in enumerate(update["delta"]):
+                    aggregated_delta[layer_index] += delta_layer * ratio
 
         aggregated_weights = apply_weight_delta(base_weights, aggregated_delta)
         blocked_adversarial = int(sum(1 for update in removed_updates if update["is_adversarial"]))

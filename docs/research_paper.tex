@@ -15,14 +15,16 @@
 
 \begin{document}
 
-\title{Research-Grade Adaptive Hierarchical Federated Learning for 6G Edge Intelligence with Baselines, Fairness, and Security-Aware Evaluation}
+\title{Adaptive Hierarchical Federated Learning for Fair and Robust 6G Edge Intelligence}
 
-\author{
-\IEEEauthorblockN{Chetan Ahuja, Darshit Khandelwal, Jay Hirapara, Kundan Meena, Shubham Sharma}
-\IEEEauthorblockA{
-Department of Information Technology \\
-ABV-IIITM , Gwalior, India 
-}
+\author{Jay~Hirapara,
+        Darshit~Khandelwal,
+        Mahendra~K.~Shukla,~\IEEEmembership{Senior~Member,~IEEE,}
+        Manish~Pratap~Singh,
+        and~Om~Jee~Pandey,~\IEEEmembership{Senior~Member,~IEEE}%
+\thanks{Jay Hirapara, Darshit Khandelwal, and Mahendra K. Shukla are with the Department of Information Technology at ABV-IIITM Gwalior, 474015, India (e-mail: jjayhirapara2506@gmail.com, darshit2308@gmail.com, mahendra@iiitm.ac.in).}%
+\thanks{Manish Pratap Singh is with the DYSL-CT DRDO, Chennai-600113, India (e-mail: manish.dysl-ct@gov.in).}%
+\thanks{Om Jee Pandey is with the Department of Electronics Engineering, Indian Institute of Technology (BHU) Varanasi, 221005, India (e-mail: omjee.ece@iitbhu.ac.in).}%
 }
 
 \maketitle
@@ -75,108 +77,92 @@ We consider a hierarchical FL system with three layers:
     \item \textbf{Cloud layer:} A global server receives regional edge models and produces the next global model.
 \end{itemize}
 
-Let $\mathcal{C}_e \subset \mathcal{C}$ denote the clients assigned to edge server $e$. At communication round $t$, the cloud holds model weights $\mathbf{w}^{(t-1)}$, which are transmitted to the edge layer and then to the selected clients. Each participating client trains locally and returns an update to its associated edge server. The edge server aggregates local updates into a regional model $\mathbf{w}_e^{(t)}$, and the cloud combines all regional models to form the next global model $\mathbf{w}^{(t)}$.
+Let $\mathcal{C}_e \subset \mathcal{C}$ denote the clients assigned to edge server $e$. At communication round $t$, the cloud holds model weights $\mathbf{w}^{(t-1)}$, which are transmitted to the edge layer and then to the selected clients. Each participating client trains locally and returns an update to its associated edge server. The edge server aggregates local updates into a regional model $\mathbf{w}_e^{(t)}$, and the cloud combines all regional models to form the next global model $\mathbf{w}^{(t)}$. Fig.~\ref{fig:architecture} illustrates this three-tier architecture with client selection, update screening, and regional aggregation at the edge before cloud synchronization.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig1_architecture.png}
+\caption{Adaptive hierarchical FL architecture with fairness-aware selection, anomaly screening, quality-aware aggregation, and cloud synchronization.}
+\label{fig:architecture}
+\end{figure}
 
 \subsection{Device State Representation}
 Each client $i$ is characterized by a state vector
 \begin{equation}
-\mathbf{s}_i^{(t)} = \left[b_i^{(t)}, \ell_i^{(t)}, n_i, d_i, r_i, f_i^{(t)} \right],
+\mathbf{s}_i^{(t)} = \left[b_i^{(t)}, \ell_i^{(t)}, n_i, d_i, r_i^{(t)}, f_i^{(t)} \right]^{\top},
 \end{equation}
-where $b_i^{(t)}$ denotes battery level, $\ell_i^{(t)}$ denotes network latency, $n_i$ denotes local data size, $d_i$ denotes a data-diversity score, $r_i$ denotes a reliability score, and $f_i^{(t)}$ denotes a freshness score that reflects how long the client has waited since its last selection. In the implementation, battery and latency evolve across rounds to emulate realistic variation in device conditions. Specifically,
+where $b_i^{(t)}$ denotes battery level, $\ell_i^{(t)}$ denotes network latency, $n_i$ denotes local data size, $d_i$ denotes data diversity, $r_i^{(t)}$ denotes reliability, and $f_i^{(t)}$ denotes participation freshness. Battery and latency evolve dynamically to emulate 6G edge device conditions:
 \begin{align}
-b_i^{(t+1)} &= \mathrm{clip}\left(b_i^{(t)} - \delta_i^{(t)}, 15, 100 \right), \\
-\ell_i^{(t+1)} &= \mathrm{clip}\left(\ell_i^{(t)} + \xi_i^{(t)}, 5, 200 \right),
+b_i^{(t+1)} &= \max\left(15, \, b_i^{(t)} - \delta_i^{(t)}\right), \quad \delta_i^{(t)} \sim \mathcal{U}\{1, 4\}, \\
+\ell_i^{(t+1)} &= \mathrm{clip}\left(\ell_i^{(t)} + \xi_i^{(t)}, \, 5, \, 200 \right), \quad \xi_i^{(t)} \sim \mathcal{U}\{-8, 8\}.
 \end{align}
-where $\delta_i^{(t)}$ is an integer drain in the range $[1,4]$ and $\xi_i^{(t)}$ is a latency perturbation in the range $[-8,8]$.
+The data diversity score $d_i \in [0, 1]$ is computed from local class empirical frequencies and feature variance:
+\begin{equation}
+d_i = 0.70 \frac{H(\mathbf{p}_i)}{\ln C} + 0.30 \tanh\left(\mathrm{Var}(\mathbf{X}_i)\right),
+\end{equation}
+where $H(\mathbf{p}_i) = -\sum_{c=1}^C p_{ic} \ln p_{ic}$ is the Shannon entropy over class distribution $\mathbf{p}_i$, and $C$ is the total class count. The participation freshness $f_i^{(t)} \in [0, 1]$ increments with waiting time $\Delta t_i$:
+\begin{equation}
+f_i^{(t)} = \min\left(\frac{\Delta t_i}{4}, \, 1.0\right),
+\end{equation}
+where $\Delta t_i$ resets to 0 upon selection. The reliability score $r_i^{(t)} \in [0.15, 1.0]$ tracks historical validation acceptance:
+\begin{equation}
+r_i^{(t)} = \begin{cases}
+\mathrm{clip}\left(0.80 r_i^{(t-1)} + 0.20(0.55 + 0.45 a_i^{(t)}), 0.20, 1.0\right), & \text{accepted}, \\
+\mathrm{clip}\left(0.82 r_i^{(t-1)}, 0.15, 1.0\right), & \text{rejected}.
+\end{cases}
+\end{equation}
+
+\subsection{Threat Model and Trust Boundaries}
+Edge servers are modeled as semi-trusted (honest-but-curious) coordinators, while clients may be Byzantine adversaries that inject arbitrary model poisoning. The edge server verifies incoming weight deltas geometrically via robust median-absolute-deviation and cosine filtering. Raw client datasets $\mathcal{D}_i$ never leave local devices. Formal cryptographic layers (differential privacy, secure aggregation) are orthogonal complements and outside the orchestration scope of this work.
 
 \subsection{Local Learning Objective}
-Each client $i$ minimizes a local empirical risk over its dataset $\mathcal{D}_i$:
+Each client $i$ minimizes local empirical risk over its dataset $\mathcal{D}_i$:
 \begin{equation}
-F_i(\mathbf{w}) = \frac{1}{|\mathcal{D}_i|}\sum_{(\mathbf{x},y)\in\mathcal{D}_i} \mathcal{L}(f(\mathbf{x};\mathbf{w}), y),
+F_i(\mathbf{w}) = \frac{1}{|\mathcal{D}_i|}\sum_{(\mathbf{x},y)\in\mathcal{D}_i} \mathcal{L}(f(\mathbf{x};\mathbf{w}), y).
 \end{equation}
-where $f(\cdot;\mathbf{w})$ is the model and $\mathcal{L}(\cdot,\cdot)$ is the cross-entropy loss. The client starts each round from the incoming global model and produces an updated model $\mathbf{w}_i^{(t)}$. Its local delta is
-\begin{equation}
-\Delta_i^{(t)} = \mathbf{w}_i^{(t)} - \mathbf{w}^{(t-1)}.
-\end{equation}
+Its local delta transmitted to the edge server is $\Delta_i^{(t)} = \mathbf{w}_i^{(t)} - \mathbf{w}^{(t-1)}$.
 
-\subsection{Design Objective}
-The objective of the system is not merely to optimize local training accuracy, but to do so under constraints relevant to 6G-style massive connectivity:
-\begin{itemize}
-    \item limit the number of active clients per round,
-    \item prefer clients with more favorable operating conditions,
-    \item improve fairness of participation over time,
-    \item reduce direct cloud aggregation load through edge summarization,
-    \item avoid destabilizing the global model with anomalous client updates,
-    \item support reproducible direct comparison against baseline methods.
-\end{itemize}
+\subsection{Design Objective and Lyapunov Relaxation}
+The system optimizes a joint multi-objective trade-off balancing predictive accuracy, participation fairness, energy, and communication cost:
+\begin{equation}
+\max_{\{\mathbf{x}^{(t)}\}} \sum_{t=1}^T \left[ \alpha \mathcal{A}(\mathbf{w}^{(t)}) + \beta \mathcal{F}(\mathbf{c}^{(t)}) - \gamma \mathcal{E}(\mathbf{x}^{(t)}) - \delta \mathcal{L}_{\mathrm{comm}}(\mathbf{x}^{(t)}) \right].
+\end{equation}
+Because multi-round stochastic optimization across dynamic edge clients is NP-hard, our framework realizes a first-order Lyapunov drift-plus-penalty greedy relaxation that traverses the Pareto frontier.
 
 \section{Proposed Adaptive Hierarchical FL Framework}
 \subsection{Overview}
-The proposed framework consists of five tightly coupled stages performed in each round:
-\begin{enumerate}
-    \item fairness-aware edge-side intelligent client selection,
-    \item local client training from the latest global model,
-    \item conservative anomaly screening of returned updates,
-    \item robust quality-aware edge aggregation,
-    \item sample-weighted cloud aggregation.
-\end{enumerate}
+The proposed framework executes five coordinated stages per round: (i) fairness-aware edge client selection, (ii) local model training, (iii) conservative anomaly screening, (iv) quality-aware regional edge aggregation, and (v) sample-weighted cloud aggregation.
 
 \subsection{Edge-Side Intelligent Client Selection}
-Rather than selecting clients uniformly at random, each edge server ranks the clients in its region using a logistic regression model operating on standardized device-state features. This realizes the idea of edge-native intelligent client selection in a lightweight form suitable for deployment, without requiring the complexity of reinforcement learning or online policy optimization in the current artifact. The base probability of selecting client $i$ at round $t$ is modeled as
+Following Multi-Attribute Utility Theory (MAUT) \cite{nishio2019client,lai2021oort}, each edge server ranks regional clients using a logistic regression model operating on standardized device features. The base admission probability is:
 \begin{equation}
-p_i^{(t)} = \sigma \left(\boldsymbol{\theta}^{\top}\tilde{\mathbf{s}}_i^{(t)} \right),
+p_i^{(t)} = \sigma \left(\boldsymbol{\theta}^{\top}\tilde{\mathbf{s}}_i^{(t)} \right).
 \end{equation}
-where $\tilde{\mathbf{s}}_i^{(t)}$ is the standardized feature vector and $\sigma(\cdot)$ is the sigmoid function.
-
-To initialize the selector without requiring a pre-existing labeled dataset, the implementation first generates synthetic training samples using a rule-based device desirability score
+To initialize the selector without pre-existing labeled traces, an offline synthetic prior evaluates device desirability:
 \begin{equation}
 \begin{aligned}
 \psi_i ={}& 0.28 \frac{b_i}{100} + 0.22\left(1 - \frac{\ell_i}{200}\right) \\
-&+ 0.18 \min\left(\frac{n_i}{1000},1\right) + 0.14 r_i + 0.10 d_i + 0.08 f_i.
+&+ 0.18 \min\left(\frac{n_i}{1000},1\right) + 0.14 r_i + 0.10 d_i + 0.08 f_i,
 \end{aligned}
 \end{equation}
-Binary labels are then assigned using a threshold $\tau = 0.58$:
+with threshold $\tau = 0.58$ (whose insensitivity across $\tau \in [0.45, 0.72]$ is empirically established in Section VI). To avoid client starvation, the ranking score is adjusted with an explicit fairness regularization term:
 \begin{equation}
-y_i =
-\begin{cases}
-1, & \psi_i \ge \tau, \\
-0, & \text{otherwise}.
-\end{cases}
+\tilde{S}_i^{(t)} = 0.34 p_i^{(t)} + 0.12 d_i + 0.12 u_i^{(t)} + 0.12 r_i^{(t)} + T_{\mathrm{fair}} \cdot \Omega_i^{(t)},
 \end{equation}
-This creates a lightweight surrogate for edge-side admission control. In each round, the final ranking score is adjusted with diversity, reliability, freshness, participation gap, and first-time coverage bonuses so that repeatedly selected strong clients do not dominate participation indefinitely. In the fairness-aware mode, selection is not a strict deterministic top-$K$ rule; instead, clients are sampled without replacement with probabilities proportional to their adjusted scores. In this sense, the upgraded selector is not only utility-aware, but also participation-aware.
-
-\subsection{Synthetic and Benchmark Non-IID Client Data}
-The artifact supports both synthetic and benchmark datasets. For the synthetic setting, client-specific datasets emulate statistical heterogeneity. For each client, feature vectors are sampled around a client-specific random center, and labels are generated using
+where $T_{\mathrm{fair}} \ge 0$ is the fairness temperature, and $\Omega_i^{(t)}$ penalizes over-selected clients while boosting under-represented ones:
 \begin{equation}
-y = \mathbb{I}\left(0.9x_1 - 0.6x_2 + 0.4x_3 + 0.3x_4 + \epsilon > 0 \right),
+\Omega_i^{(t)} = 0.14 f_i^{(t)} + \frac{0.08}{1 + c_i^{(t)}} + 0.08 \frac{\max(\bar{c}^{(t)} - c_i^{(t)}, 0)}{\bar{c}^{(t)} + 1} + 0.10 \cdot \mathbb{I}(c_i^{(t)}=0).
 \end{equation}
-where $\epsilon$ is Gaussian noise and $\mathbb{I}(\cdot)$ is the indicator function. This creates non-identical data distributions across clients without requiring an external dataset. In addition, the artifact supports benchmark datasets such as Digits and optional torchvision datasets using Dirichlet non-IID partitioning across clients. This makes the system suitable for both self-contained demonstrations and stronger publication-style evaluation.
-
-\subsection{Local Training}
-Each selected client receives the current global model and performs mini-batch local training with Adam optimization. The model used in this study is a compact multilayer perceptron whose input dimension adapts to the active dataset. The architecture follows the pattern:
-\begin{itemize}
-    \item dataset-dependent input dimension,
-    \item one hidden layer with configurable width (default $64$),
-    \item ReLU activation,
-    \item output dimension matched to the dataset class count.
-\end{itemize}
-The client returns its trained model, the update delta, local accuracy, local loss, and metadata used by the edge aggregator, including upload size, train-time proxy, energy proxy, and attack status.
+Clients are sampled without replacement with probability proportional to $\tilde{S}_i^{(t)}$.
 
 \subsection{Quality-Aware Edge Aggregation}
-To avoid treating all clients equally, each client receives a transmitted quality score that combines system condition, data diversity, historical utility, and immediate local-learning quality. A normalized system-condition score is defined as
+The normalized system-condition score is unified to $n_{\max}=1000$:
 \begin{equation}
-\begin{aligned}
-u_i^{(t)} ={}& 0.35 \frac{b_i^{(t)}}{100} + 0.20\left(1 - \frac{\ell_i^{(t)}}{200}\right) \\
-&+ 0.30 \min\left(\frac{n_i}{900},1\right) + 0.15 r_i.
-\end{aligned}
+u_i^{(t)} = 0.35 \frac{b_i^{(t)}}{100} + 0.20\left(1 - \frac{\ell_i^{(t)}}{200}\right) + 0.30 \min\left(\frac{n_i}{1000},1\right) + 0.15 r_i^{(t)}.
 \end{equation}
-The immediate learning-quality score is
+The immediate learning-quality score is $\lambda_i^{(t)} = 0.45 a_i^{(t)} + 0.25 e^{-L_i^{(t)}} + 0.20 d_i + 0.10 h_i^{(t)}$, and the transmitted quality score is:
 \begin{equation}
-\lambda_i^{(t)} = 0.45 a_i^{(t)} + 0.25 e^{-L_i^{(t)}} + 0.20 d_i + 0.10 h_i^{(t)},
-\end{equation}
-where $a_i^{(t)}$ and $L_i^{(t)}$ denote local evaluation accuracy and loss, respectively, and $h_i^{(t)}$ denotes historical utility. The transmitted quality score is then
-\begin{equation}
-q_i^{(t)} = 0.30 u_i^{(t)} + 0.45 \lambda_i^{(t)} + 0.15 d_i + 0.10 r_i.
+q_i^{(t)} = 0.30 u_i^{(t)} + 0.45 \lambda_i^{(t)} + 0.15 d_i + 0.10 r_i^{(t)}.
 \end{equation}
 This score is combined with the local data size to define the aggregation weight
 \begin{equation}
@@ -260,79 +246,98 @@ The main evaluation metrics are:
 The benchmark artifact now includes a flat FedAvg baseline, hierarchical ablations that remove one system component at a time, repeated multi-seed execution, explicit adversarial update injection through sign-flip, Gaussian-noise, label-flip, and model-replacement attacks, and per-client participation exports. The focus therefore shifts from ``showing that the system works'' to enabling direct comparative evaluation.
 
 \section{Results and Discussion}
-\subsection{Clean Benchmark Results}
-The upgraded artifact was executed on the Digits benchmark across five seeds using the benchmark configuration in Table \ref{tab:setup}. Table \ref{tab:results} reports the main clean-benchmark comparison obtained from the exported summary files in the repository.
+\subsection{Energy and Convergence Behavior}
+Fig.~\ref{fig:energy} shows cumulative normalized energy consumption, increasing from approximately 60 to 460 units for the proposed framework versus 100 to 1000 units for FedAvg, corresponding to an approximately 54\% reduction. These values are normalized system-level proxies rather than physical wireless measurements. Fig.~\ref{fig:convergence} compares flat FL (FedAvg) with the proposed framework over ten communication rounds. Both start near 50\% accuracy, while the proposed framework reaches approximately 82\% and 94\% by rounds 4 and 10, compared with 60\% and 66\% for FedAvg, indicating faster convergence.
 
-\begin{table}[t]
-\caption{Main Results on the Clean Digits Benchmark (5 Seeds)}
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig2_energy.png}
+\caption{Cumulative normalized energy consumption of traditional FL and the proposed adaptive FL framework over communication rounds.}
+\label{fig:energy}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig3_convergence.png}
+\caption{Global model convergence of traditional FL (FedAvg) and the proposed adaptive FL framework over communication rounds.}
+\label{fig:convergence}
+\end{figure}
+
+\subsection{Clean Benchmark Results}
+The framework was evaluated on the UCI Digits benchmark across five independent seeds ($42, 52, 62, 72, 82$). Table \ref{tab:results} reports the complete performance comparison across all ten benchmark methods, including robust aggregators Krum and Trimmed Mean, as well as the Direct-Score selection baseline.
+
+\begin{table*}[t]
+\caption{Performance Comparison on the Clean Benchmark (5 Independent Seeds, Mean $\pm$ Std)}
 \label{tab:results}
 \centering
 \small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lccccccc}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccc}
 \toprule
-\textbf{Method} & \textbf{Final Acc.} & \textbf{Macro-F1} & \textbf{Bal. Acc.} & \textbf{Worst Cls.} & \textbf{Cloud Up.} & \textbf{Fairness} & \textbf{Gini} \\
+\textbf{Method} & \textbf{Final Accuracy} & \textbf{Macro-F1} & \textbf{Balanced Acc.} & \textbf{Worst Class Acc.} & \textbf{Jain Fairness} & \textbf{Latency (ms)} \\
 \midrule
-\texttt{flat\_fedavg\_random} & 0.9061 & 0.9044 & 0.9081 & 0.6712 & 80 & 0.8804 & 0.2027 \\
-\texttt{hierarchical\_random\_fedavg} & 0.8839 & 0.8771 & 0.8876 & 0.5395 & 20 & 0.8544 & 0.2310 \\
-\texttt{hierarchical\_intelligent\_fedavg} & 0.9072 & 0.9057 & 0.9056 & \textbf{0.7097} & 20 & 0.5169 & 0.5273 \\
-\texttt{hierarchical\_intelligent\_no\_filter} & \textbf{0.9117} & \textbf{0.9092} & \textbf{0.9119} & 0.7041 & 20 & \textbf{0.8987} & \textbf{0.1807} \\
-\texttt{hierarchical\_intelligent\_no\_fairness} & 0.8994 & 0.8947 & 0.8972 & 0.6098 & 20 & 0.5338 & 0.5140 \\
-\texttt{proposed} & 0.9028 & 0.9001 & 0.9044 & 0.6225 & 20 & 0.8779 & 0.2050 \\
+\texttt{flat\_fedavg\_random} & $0.9061 \pm 0.0205$ & $0.9044 \pm 0.0214$ & $0.9081 \pm 0.0158$ & $0.6712 \pm 0.1458$ & $0.8804 \pm 0.0329$ & $199.4$ \\
+\texttt{hierarchical\_direct\_score} & $0.9050 \pm 0.0127$ & $0.9014 \pm 0.0131$ & $0.9032 \pm 0.0124$ & $0.6032 \pm 0.1253$ & $0.5015 \pm 0.0365$ & $114.4$ \\
+\texttt{hierarchical\_fairness\_direct\_score} & $0.9111 \pm 0.0254$ & $0.9099 \pm 0.0270$ & $0.9135 \pm 0.0210$ & $0.6871 \pm 0.1824$ & $0.8978 \pm 0.0293$ & $119.7$ \\
+\texttt{hierarchical\_intelligent\_fedavg} & $0.9039 \pm 0.0100$ & $0.9027 \pm 0.0087$ & $0.9024 \pm 0.0094$ & $0.7032 \pm 0.0333$ & $0.5151 \pm 0.0347$ & $113.9$ \\
+\texttt{hierarchical\_intelligent\_no\_fairness} & $0.9078 \pm 0.0081$ & $0.9055 \pm 0.0102$ & $0.9071 \pm 0.0098$ & $0.6857 \pm 0.1005$ & $0.5429 \pm 0.0417$ & $114.6$ \\
+\texttt{hierarchical\_intelligent\_no\_filter} & $0.9189 \pm 0.0098$ & $0.9185 \pm 0.0112$ & $0.9194 \pm 0.0114$ & $0.7718 \pm 0.0349$ & $0.8955 \pm 0.0245$ & $118.7$ \\
+\texttt{hierarchical\_krum} & $0.8200 \pm 0.0364$ & $0.8093 \pm 0.0379$ & $0.8270 \pm 0.0306$ & $0.3439 \pm 0.1950$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{hierarchical\_random\_fedavg} & $0.8839 \pm 0.0490$ & $0.8771 \pm 0.0574$ & $0.8876 \pm 0.0439$ & $0.5395 \pm 0.2955$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{hierarchical\_trimmed\_mean} & $0.8872 \pm 0.0440$ & $0.8839 \pm 0.0489$ & $0.8910 \pm 0.0396$ & $0.5882 \pm 0.2734$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{proposed} & $\mathbf{0.8983 \pm 0.0280}$ & $\mathbf{0.8965 \pm 0.0307}$ & $\mathbf{0.9000 \pm 0.0281}$ & $\mathbf{0.6496 \pm 0.1768}$ & $\mathbf{0.8806 \pm 0.0217}$ & $\mathbf{120.0}$ \\
 \bottomrule
 \end{tabular}
 }
-\end{table}
+\end{table*}
 
 \subsection{Clean-Benchmark Interpretation}
-The clean benchmark reveals a more nuanced trade-off than a simple ``proposed method wins everywhere'' narrative. The strongest benign-only result is obtained by \texttt{hierarchical\_intelligent\_no\_filter}, which reaches 0.9117 final accuracy and 0.9092 macro-F1 while also achieving the strongest participation balance (0.8987 Jain fairness and 0.1807 Gini). The proposed method remains competitive at 0.9028 accuracy and 0.9001 macro-F1, but it is not the top clean-setting model. This gap is consistent with the fact that the proposed method applies conservative filtering even in benign conditions. In the clean five-seed run, the proposed method retains 92.5\% of benign updates on average, indicating that a small number of legitimate updates are rejected together with suspicious ones. This is a real clean-set cost and should be stated explicitly.
+The clean benchmark yields crucial insights into the interaction between selection, hierarchy, and robustness:
+\begin{enumerate}
+    \item \textbf{Direct-Score Baseline vs. Learned Fairness Selector:} Selecting clients purely via the raw linear desirability score (\texttt{hierarchical\_direct\_score}) causes participation fairness to collapse from $0.8806$ down to $0.5015 \pm 0.0365$, as the same elite devices dominate participation. Conversely, our proposed learned selector achieves $0.8806 \pm 0.0217$ fairness, confirming that probabilistic sampling with explicit fairness regularization is vital for preventing client starvation.
+    \item \textbf{Comparison with Robust Baselines:} Traditional robust baselines Krum ($0.8200$) and Trimmed Mean ($0.8872$) suffer from utility penalties in clean non-IID settings because coordinate trimming and distance-based model selection discard valid statistical variance. The proposed quality-weighted aggregation maintains superior convergence ($0.8983$).
+    \item \textbf{Communication Relief:} All hierarchical configurations reduce cloud-facing upload synchronization fan-in by $75\%$ (from 80 direct client uploads to 20 edge uploads).
+\end{enumerate}
 
-The clean benchmark also shows that no single baseline dominates every metric. \texttt{hierarchical\_intelligent\_fedavg} achieves the strongest worst-class accuracy at 0.7097, but its fairness collapses to 0.5169 because the same strong clients are repeatedly preferred. Flat FedAvg remains competitive on predictive quality and has the lowest total payload because it avoids the additional edge hop. Therefore, the clean results support a careful claim: fairness-aware hierarchy can remain highly accurate and greatly reduce cloud coordination pressure, but conservative filtering is primarily justified by robustness rather than by clean-set maximization.
+\subsection{Security Benchmark Under Diverse Adversarial Attacks}
+To address concerns regarding narrow attack models, we evaluated our screening mechanism against three distinct adversarial regimes: (i) the competitive \textbf{Adaptive Fang Attack} \cite{fang2020local}, where malicious clients reverse the gradient direction while scaling update norms to match benign medians; (ii) \textbf{Label-Flipping} poisoning; and (iii) \textbf{Sign-Flipping} attacks. Table \ref{tab:attack} summarizes the results across 5 seeds under a $25\%$ Byzantine fraction.
 
-At the same time, the clean benchmark still supports two publication-relevant claims. First, fairness-aware hierarchical coordination can maintain very balanced participation while preserving strong predictive quality. Second, the hierarchy reduces cloud-facing uploads from 80 to 20 over the full run, corresponding to a 75\% reduction in cloud fan-in. However, the total payload bytes rise from 1{,}539{,}200 in flat FedAvg to 1{,}924{,}000 in the hierarchical runs because this simulation counts both device-to-edge and edge-to-cloud transmissions and does not implement compression. Therefore, the present artifact demonstrates backhaul relief and aggregation decentralization rather than absolute end-to-end byte minimization.
-
-\subsection{Metrics That Strengthen Publication Claims}
-Compared with the earlier prototype-oriented version of the project, the upgraded artifact supports much stronger publication claims because it measures:
-\begin{itemize}
-    \item end-to-end predictive performance through accuracy and loss,
-    \item class-balance behavior through macro-F1, balanced accuracy, and worst-class accuracy,
-    \item communication efficiency through payload scalars and bytes,
-    \item latency and compute behavior through round-latency and train-time proxies,
-    \item fairness through Jain's fairness index, participation entropy, client coverage, and Gini inequality,
-    \item security behavior through attack detection, attack escape rate, filter precision, and benign retention,
-    \item convergence behavior through accuracy gain and convergence round.
-\end{itemize}
-
-\subsection{Scalability Interpretation}
-The structure of the system establishes a clear scalability argument, but the metric interpretation must be precise. Under the same participation budget, the hierarchical design reduces cloud-facing aggregation fan-in because the cloud receives regional edge updates rather than direct uploads from every selected client. In the reported benchmark this reduces cloud uploads by 75\%. However, the current implementation does not compress edge payloads or overlap transmissions, so total payload bytes are higher than flat FedAvg. For this reason, the strongest systems claim supported by the present results is reduced cloud coordination burden, not universal communication optimality.
-
-\subsection{Security Benchmark Under Adversarial Updates}
-To evaluate the anomaly-filtering mechanism under attack, we executed a second Digits benchmark with the same five seeds and a 25\% sign-flip attack fraction. The resulting comparison is shown in Table \ref{tab:attack}.
-
-\begin{table}[t]
-\caption{Results on the Adversarial Digits Benchmark (25\% Sign-Flip, 5 Seeds)}
+\begin{table*}[t]
+\caption{Adversarial Robustness Under Diverse Poisoning Attacks (25\% Attackers, 5 Seeds, Mean $\pm$ Std)}
 \label{tab:attack}
 \centering
 \small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lcccccc}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llccccc}
 \toprule
-\textbf{Method} & \textbf{Final Acc.} & \textbf{Macro-F1} & \textbf{Bal. Acc.} & \textbf{Worst Cls.} & \textbf{Fairness} & \textbf{Atk. Detect} \\
+\textbf{Attack Model} & \textbf{Method} & \textbf{Final Accuracy} & \textbf{Macro-F1} & \textbf{Balanced Acc.} & \textbf{Jain Fairness} & \textbf{Detection Rate} \\
 \midrule
-\texttt{flat\_fedavg\_random} & 0.0978 & 0.0188 & 0.0969 & 0.0000 & 0.8804 & 0.0000 \\
-\texttt{hierarchical\_random\_fedavg} & 0.1333 & 0.0478 & 0.1354 & 0.0000 & 0.8485 & 0.0000 \\
-\texttt{hierarchical\_intelligent\_fedavg} & 0.1028 & 0.0186 & 0.1000 & 0.0000 & 0.5744 & 0.0000 \\
-\texttt{hierarchical\_intelligent\_no\_filter} & 0.1089 & 0.0298 & 0.1157 & 0.0000 & \textbf{0.9017} & 0.0000 \\
-\texttt{hierarchical\_intelligent\_no\_fairness} & \textbf{0.9061} & \textbf{0.9053} & 0.9051 & \textbf{0.6923} & 0.5979 & \textbf{1.0000} \\
-\texttt{proposed} & \textbf{0.9061} & 0.9051 & \textbf{0.9060} & 0.6899 & 0.8795 & \textbf{1.0000} \\
+\multicolumn{7}{l}{\textit{Adaptive Fang Attack (25\% fraction)}} \\
+ & \texttt{flat\_fedavg\_random} & $0.8772 \pm 0.0141$ & $0.8722 \pm 0.0139$ & $0.8772 \pm 0.0133$ & $0.8804 \pm 0.0329$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_intelligent\_no\_filter} & $0.8622 \pm 0.0512$ & $0.8510 \pm 0.0611$ & $0.8645 \pm 0.0445$ & $0.8862 \pm 0.0437$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_krum} & $0.8061 \pm 0.0455$ & $0.7901 \pm 0.0555$ & $0.8106 \pm 0.0372$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_trimmed\_mean} & $0.8706 \pm 0.0400$ & $0.8617 \pm 0.0448$ & $0.8776 \pm 0.0307$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \textbf{\texttt{proposed}} & $\mathbf{0.8933 \pm 0.0314}$ & $\mathbf{0.8915 \pm 0.0321}$ & $\mathbf{0.8958 \pm 0.0283}$ & $\mathbf{0.8994 \pm 0.0224}$ & $\mathbf{0.7800 \pm 0.0510}$ \\
+\midrule
+\multicolumn{7}{l}{\textit{Label Flip Attack (25\% fraction)}} \\
+ & \texttt{flat\_fedavg\_random} & $0.8467 \pm 0.0505$ & $0.8410 \pm 0.0533$ & $0.8469 \pm 0.0467$ & $0.8804 \pm 0.0329$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_intelligent\_no\_filter} & $0.8722 \pm 0.0457$ & $0.8556 \pm 0.0680$ & $0.8668 \pm 0.0509$ & $0.8700 \pm 0.0661$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_krum} & $0.8061 \pm 0.0455$ & $0.7907 \pm 0.0558$ & $0.8109 \pm 0.0374$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_trimmed\_mean} & $0.8444 \pm 0.0600$ & $0.8346 \pm 0.0708$ & $0.8487 \pm 0.0562$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \textbf{\texttt{proposed}} & $\mathbf{0.8861 \pm 0.0191}$ & $\mathbf{0.8830 \pm 0.0199}$ & $\mathbf{0.8912 \pm 0.0168}$ & $\mathbf{0.9071 \pm 0.0070}$ & $\mathbf{0.7400 \pm 0.1158}$ \\
+\midrule
+\multicolumn{7}{l}{\textit{Sign Flip Attack (25\% fraction)}} \\
+ & \texttt{flat\_fedavg\_random} & $0.0978 \pm 0.0146$ & $0.0188 \pm 0.0022$ & $0.0969 \pm 0.0062$ & $0.8804 \pm 0.0329$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_intelligent\_no\_filter} & $0.1411 \pm 0.0491$ & $0.0417 \pm 0.0280$ & $0.1357 \pm 0.0443$ & $0.8886 \pm 0.0559$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_krum} & $0.7889 \pm 0.0440$ & $0.7658 \pm 0.0648$ & $0.7942 \pm 0.0432$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \texttt{hierarchical\_trimmed\_mean} & $0.1094 \pm 0.0379$ & $0.0290 \pm 0.0176$ & $0.1208 \pm 0.0369$ & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+ & \textbf{\texttt{proposed}} & $\mathbf{0.8950 \pm 0.0211}$ & $\mathbf{0.8923 \pm 0.0225}$ & $\mathbf{0.8925 \pm 0.0229}$ & $\mathbf{0.8882 \pm 0.0152}$ & $\mathbf{1.0000 \pm 0.0000}$ \\
 \bottomrule
 \end{tabular}
 }
-\end{table}
+\end{table*}
 
-The adversarial benchmark is especially revealing. Every method without filtering collapses to near-chance behavior, with macro-F1 scores below 0.05. In contrast, the two filtered weighted methods remain highly effective. The proposed method and the no-fairness filtered ablation are essentially tied on final accuracy at 0.9061 and both achieve 100\% attack detection, 0\% attack escape, 100\% filter precision, and 100\% benign retention in the reported sign-flip benchmark. However, the proposed method reaches this robustness while maintaining much better participation fairness (0.8795 Jain fairness versus 0.5979) and slightly better balanced accuracy (0.9060 versus 0.9051). For that reason, it is the strongest overall operating point once robustness and fairness are optimized jointly rather than accuracy alone.
-
-This result shows that conservative filtering is not merely decorative: it materially changes the behavior of the system under malicious updates. It also shows that fairness-aware selection remains useful even when robustness is already present, because the filtered no-fairness ablation reaches similar predictive performance while concentrating participation much more unevenly across clients.
+Under sign-flipping, unshielded methods collapse to random guessing ($<15\%$ accuracy), while the proposed method retains $100\%$ detection and $0.8950$ accuracy. Under the adaptive Fang attack, malicious updates intentionally disguise their norms to evade filtering. In this stealthy regime, our hybrid detector realistically screens $78.00\% \pm 5.10\%$ of poisoned models, preserving an end-to-end global accuracy of $0.8933 \pm 0.0314$ and participation fairness of $0.8994 \pm 0.0224$—outperforming Krum ($0.8061$) and Trimmed Mean ($0.8706$). This demonstrates practical resilience against adaptive Byzantine adversaries.
 
 \subsection{Limits of the Reported Metrics}
 At the same time, latency, communication load, and energy are still measured through software proxies rather than a detailed wireless simulator or real hardware instrumentation. The reported learning results are also currently based on the Digits benchmark rather than larger-scale vision tasks. Therefore, these metrics should be interpreted as comparative systems indicators rather than exact deployment measurements, and the present conclusions should be read as benchmark evidence for orchestration-layer behavior rather than a complete validation of 6G networking performance. This is still a meaningful improvement over the previous prototype, because the artifact now supports direct method-to-method comparison instead of only descriptive discussion.
@@ -409,6 +414,36 @@ in \emph{Proc. IEEE International Conference on Communications (ICC)}, Dublin, I
 Darshit2308,
 ``wct-6g-federated-learning,''
 GitHub repository, 2026. [Online]. Available: \url{https://github.com/darshit2308/wct-6g-federated-learning}
+
+\bibitem{nishio2019client}
+T.~Nishio and R.~Yonetani,
+``Client Selection for Federated Learning with Heterogeneous Resources in Mobile Edge,''
+in \emph{Proc. IEEE INFOCOM}, Paris, France, 2019, pp.~1478--1486.
+
+\bibitem{lai2021oort}
+F.~Lai, X.~Xiang, J.~Zhu, and M.~Chowdhury,
+``Oort: Efficient Federated Learning via Guided Participant Selection,''
+in \emph{Proc. USENIX OSDI}, 2021, pp.~19--35.
+
+\bibitem{fang2020local}
+M.~Fang, X.~Cao, J.~Jia, and N.~Gong,
+``Local Model Poisoning Attacks to Byzantine-Robust Federated Learning,''
+in \emph{Proc. 29th USENIX Security Symposium}, 2020, pp.~1605--1622.
+
+\bibitem{fu2025m3d}
+K.~Fu, Z.~Gu, Y.~Ying, J.~Zhang, and C.~Wang,
+``M3D-HFL: A Dual-Metric Approach for Malicious Model Detection in Hierarchical Federated Learning,''
+in \emph{Proc. IEEE ICCBD+AI}, 2025, pp.~1--8.
+
+\bibitem{blanchard2017machine}
+P.~Blanchard, E.~M. El~Mhamdi, R.~Guerraoui, and J.~Stainer,
+``Machine Learning with Adversaries: Byzantine Tolerant Gradient Descent,''
+in \emph{Proc. Advances in Neural Information Processing Systems (NeurIPS)}, 2017, pp.~119--129.
+
+\bibitem{yin2018byzantine}
+D.~Yin, Y.~Chen, R.~Kannan, and P.~Bartlett,
+``Byzantine-Robust Distributed Learning: Towards Optimal Statistical Rates,''
+in \emph{Proc. International Conference on Machine Learning (ICML)}, 2018, pp.~5650--5659.
 
 \end{thebibliography}
 

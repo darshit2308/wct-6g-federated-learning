@@ -109,6 +109,42 @@ DEFAULT_METHODS = {
         fairness_temperature=0.0,
         description="Weighted hierarchy with filtering but without fairness-aware selection.",
     ),
+    "hierarchical_krum": MethodSpec(
+        name="hierarchical_krum",
+        topology="hierarchical",
+        selection_strategy="random",
+        aggregation_strategy="krum",
+        use_outlier_filter=False,
+        fairness_temperature=0.0,
+        description="Hierarchical Krum aggregation baseline (Blanchard et al., 2017).",
+    ),
+    "hierarchical_trimmed_mean": MethodSpec(
+        name="hierarchical_trimmed_mean",
+        topology="hierarchical",
+        selection_strategy="random",
+        aggregation_strategy="trimmed_mean",
+        use_outlier_filter=False,
+        fairness_temperature=0.0,
+        description="Hierarchical coordinate-wise Trimmed Mean baseline (Yin et al., 2018).",
+    ),
+    "hierarchical_direct_score": MethodSpec(
+        name="hierarchical_direct_score",
+        topology="hierarchical",
+        selection_strategy="direct_score",
+        aggregation_strategy="fedavg",
+        use_outlier_filter=False,
+        fairness_temperature=0.0,
+        description="Direct analytical desirability score selection without ML surrogate.",
+    ),
+    "hierarchical_fairness_direct_score": MethodSpec(
+        name="hierarchical_fairness_direct_score",
+        topology="hierarchical",
+        selection_strategy="fairness_aware_direct_score",
+        aggregation_strategy="quality_weighted",
+        use_outlier_filter=True,
+        fairness_temperature=1.0,
+        description="Fairness-aware direct-score selection with weighted aggregation and anomaly filter.",
+    ),
 }
 
 
@@ -1058,17 +1094,15 @@ def _build_latex_summary_table(aggregated_summaries):
     ]
     for summary in aggregated_summaries:
         method = summary["method"].replace("_", "\\_")
+        acc = f"${summary['final_accuracy_mean']:.4f} \\pm {summary.get('final_accuracy_std', 0.0):.4f}$"
+        f1 = f"${summary['final_macro_f1_mean']:.4f} \\pm {summary.get('final_macro_f1_std', 0.0):.4f}$"
+        bal = f"${summary['final_balanced_accuracy_mean']:.4f} \\pm {summary.get('final_balanced_accuracy_std', 0.0):.4f}$"
+        worst = f"${summary['final_worst_class_accuracy_mean']:.4f} \\pm {summary.get('final_worst_class_accuracy_std', 0.0):.4f}$"
+        bytes_val = f"{summary['total_payload_bytes_mean']:.0f}"
+        fair = f"${summary['final_selection_fairness_mean']:.4f} \\pm {summary.get('final_selection_fairness_std', 0.0):.4f}$"
+        atk = f"${summary['attack_detection_rate_mean']:.4f} \\pm {summary.get('attack_detection_rate_std', 0.0):.4f}$"
         lines.append(
-            (
-                f"\\texttt{{{method}}} & "
-                f"{summary['final_accuracy_mean']:.4f} & "
-                f"{summary['final_macro_f1_mean']:.4f} & "
-                f"{summary['final_balanced_accuracy_mean']:.4f} & "
-                f"{summary['final_worst_class_accuracy_mean']:.4f} & "
-                f"{summary['total_payload_bytes_mean']:.0f} & "
-                f"{summary['final_selection_fairness_mean']:.4f} & "
-                f"{summary['attack_detection_rate_mean']:.4f} \\\\"
-            )
+            f"\\texttt{{{method}}} & {acc} & {f1} & {bal} & {worst} & {bytes_val} & {fair} & {atk} \\\\"
         )
     lines.extend(["\\bottomrule", "\\end{tabular}", ""])
     return "\n".join(lines)
@@ -1170,13 +1204,13 @@ def run_benchmark_suite(config, method_names, seeds):
 def format_summary_table(aggregated_summaries):
     headers = [
         "Method",
-        "Final Acc",
-        "Macro F1",
+        "Final Acc (mean±std)",
+        "Macro F1 (mean±std)",
         "Bytes",
-        "Latency",
-        "Fairness",
+        "Latency (ms)",
+        "Fairness (mean±std)",
         "Gini",
-        "Atk Detect",
+        "Atk Detect (mean±std)",
     ]
     lines = [
         " | ".join(headers),
@@ -1184,17 +1218,21 @@ def format_summary_table(aggregated_summaries):
     ]
 
     for summary in aggregated_summaries:
+        acc = f"{summary['final_accuracy_mean']:.4f}±{summary.get('final_accuracy_std', 0.0):.4f}"
+        f1 = f"{summary['final_macro_f1_mean']:.4f}±{summary.get('final_macro_f1_std', 0.0):.4f}"
+        fair = f"{summary['final_selection_fairness_mean']:.4f}±{summary.get('final_selection_fairness_std', 0.0):.4f}"
+        atk = f"{summary['attack_detection_rate_mean']:.4f}±{summary.get('attack_detection_rate_std', 0.0):.4f}"
         lines.append(
             " | ".join(
                 [
                     summary["method"],
-                    f"{summary['final_accuracy_mean']:.4f}",
-                    f"{summary['final_macro_f1_mean']:.4f}",
+                    acc,
+                    f1,
                     f"{summary['total_payload_bytes_mean']:.0f}",
                     f"{summary['mean_round_latency_proxy_ms_mean']:.2f}",
-                    f"{summary['final_selection_fairness_mean']:.4f}",
+                    fair,
                     f"{summary['final_participation_gini_mean']:.4f}",
-                    f"{summary['attack_detection_rate_mean']:.4f}",
+                    atk,
                 ]
             )
         )

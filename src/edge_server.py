@@ -19,6 +19,7 @@ class EdgeServer:
         local_epochs=2,
         learning_rate=0.02,
         fairness_temperature=1.0,
+        selection_threshold=0.58,
     ):
         self.edge_id = edge_id
         self.model_config = model_config
@@ -28,10 +29,13 @@ class EdgeServer:
         self.local_epochs = local_epochs
         self.learning_rate = learning_rate
         self.fairness_temperature = fairness_temperature
+        self.selection_threshold = selection_threshold
         self.random_state = random_state
 
         self.aggregator = SmartAggregator()
-        self.selection_model = self._build_selection_model(random_state=random_state)
+        self.selection_model = self._build_selection_model(
+            random_state=random_state, threshold=selection_threshold
+        )
         self._rng = np.random.default_rng(random_state)
 
     def _selection_features(self, client):
@@ -48,6 +52,25 @@ class EdgeServer:
             ]
         )
 
+    def _direct_desirability_score(self, client):
+        """
+        Direct analytical desirability score without ML surrogate (Answers Rev 3.4).
+        """
+        battery = client.battery_level
+        latency = client.network_latency
+        data_size = client.data_size
+        reliability = client.reliability_score
+        diversity = client.data_diversity_score()
+        freshness = client.selection_freshness_score()
+        return float(
+            0.28 * (battery / 100.0)
+            + 0.22 * (1.0 - latency / 200.0)
+            + 0.18 * min(data_size / 1000.0, 1.0)
+            + 0.14 * reliability
+            + 0.10 * diversity
+            + 0.08 * freshness
+        )
+
     def _adjusted_selection_score(self, client, probability, mean_selection_count):
         system_score = client.system_quality_score()
         diversity_bonus = client.data_diversity_score()
@@ -58,7 +81,7 @@ class EdgeServer:
         participation_gap = max(mean_selection_count - client.selection_count, 0.0)
         normalized_gap = participation_gap / max(mean_selection_count + 1.0, 1.0)
 
-        if self.selection_strategy == "intelligent":
+        if self.selection_strategy in ["intelligent", "direct_score"]:
             return (
                 0.55 * probability
                 + 0.20 * diversity_bonus
@@ -66,7 +89,7 @@ class EdgeServer:
                 + 0.10 * reliability_bonus
             )
 
-        if self.selection_strategy == "fairness_aware":
+        if self.selection_strategy in ["fairness_aware", "fairness_aware_direct_score"]:
             return (
                 0.34 * probability
                 + 0.12 * diversity_bonus
@@ -80,7 +103,7 @@ class EdgeServer:
 
         raise ValueError(f"Unsupported selection strategy: {self.selection_strategy}")
 
-    def _build_selection_model(self, random_state):
+    def _build_selection_model(self, random_state, threshold=0.58):
         rng = np.random.default_rng(random_state)
         training_examples = []
         labels = []
@@ -105,7 +128,7 @@ class EdgeServer:
             training_examples.append(
                 [battery, latency, data_size, reliability, diversity, freshness]
             )
-            labels.append(1 if rule_score >= 0.58 else 0)
+            labels.append(1 if rule_score >= threshold else 0)
 
         model = Pipeline(
             [
@@ -132,15 +155,20 @@ class EdgeServer:
             return selected_clients
 
         if verbose:
-            print(f"\n[Edge {self.edge_id}] Running intelligent client selection...")
+            mode_desc = "direct-score" if "direct_score" in self.selection_strategy else "intelligent"
+            print(f"\n[Edge {self.edge_id}] Running {mode_desc} client selection...")
 
         scored_clients = []
         mean_selection_count = float(
             np.mean([client.selection_count for client in clients])
         ) if clients else 0.0
         for client in clients:
-            features = self._selection_features(client)
-            probability = self.selection_model.predict_proba(features)[0][1]
+            if self.selection_strategy in ["direct_score", "fairness_aware_direct_score"]:
+                probability = self._direct_desirability_score(client)
+            else:
+                features = self._selection_features(client)
+                probability = float(self.selection_model.predict_proba(features)[0][1])
+
             adjusted_score = self._adjusted_selection_score(
                 client,
                 probability,
@@ -150,7 +178,7 @@ class EdgeServer:
             if verbose:
                 print(
                     f" - Client {client.client_id}: score={adjusted_score:.2f}, "
-                    f"base_prob={probability:.2f}, "
+                    f"base_score={probability:.2f}, "
                     f"battery={client.battery_level}%, latency={client.network_latency}ms, "
                     f"data={client.data_size}, diversity={client.data_diversity_score():.2f}, "
                     f"freshness={client.selection_freshness_score():.2f}, "
@@ -158,7 +186,7 @@ class EdgeServer:
                 )
 
         scored_clients.sort(key=lambda item: item[0], reverse=True)
-        if self.selection_strategy == "fairness_aware":
+        if self.selection_strategy in ["fairness_aware", "fairness_aware_direct_score"]:
             score_values = np.array(
                 [max(score, 1e-6) for score, _, _ in scored_clients],
                 dtype=float,

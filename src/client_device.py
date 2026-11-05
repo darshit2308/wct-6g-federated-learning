@@ -72,7 +72,7 @@ class DeviceClient:
     def system_quality_score(self):
         battery_term = self.battery_level / 100.0
         latency_term = max(0.0, 1.0 - (self.network_latency / 200.0))
-        data_term = min(self.data_size / 900.0, 1.0)
+        data_term = min(self.data_size / 1000.0, 1.0)
         return (
             0.35 * battery_term
             + 0.20 * latency_term
@@ -164,6 +164,30 @@ class DeviceClient:
             return attacked_delta
         if attack_type == "model_replacement":
             return [attack_scale * layer for layer in delta]
+        if attack_type in ["adaptive_fang", "fang"]:
+            # Fang et al. (USENIX Security 2020) adaptive model poisoning:
+            # Perturb in negative direction while matching benign norm to evade MAD
+            attacked_delta = []
+            for layer in delta:
+                norm = float(np.linalg.norm(layer))
+                drift = self._rng.normal(loc=0.0, scale=0.15 * (norm + 1e-6), size=layer.shape)
+                adv_layer = -1.0 * layer + drift.astype(layer.dtype)
+                adv_norm = float(np.linalg.norm(adv_layer))
+                if adv_norm > 1e-12:
+                    adv_layer = adv_layer * (norm / adv_norm)
+                attacked_delta.append(adv_layer)
+            return attacked_delta
+        if attack_type == "min_max":
+            # Min-Max attack: stealthy noise perturbation bounded to local norm
+            attacked_delta = []
+            for layer in delta:
+                norm = float(np.linalg.norm(layer))
+                noise = self._rng.normal(loc=0.0, scale=1.0, size=layer.shape)
+                noise_norm = float(np.linalg.norm(noise))
+                if noise_norm > 1e-12:
+                    noise = noise * (norm / noise_norm)
+                attacked_delta.append(-0.5 * layer + 0.5 * noise.astype(layer.dtype))
+            return attacked_delta
         return delta
 
     def train_local_model(

@@ -1,0 +1,11 @@
+\begin{tabular}{lccccccc}
+\toprule
+Method & Final Acc. & Macro-F1 & Bal. Acc. & Worst Class & Bytes & Fairness & Atk. Detect \\
+\midrule
+\texttt{flat\_fedavg\_random} & $0.0978 \pm 0.0146$ & $0.0188 \pm 0.0022$ & $0.0969 \pm 0.0062$ & $0.0000 \pm 0.0000$ & 1539200 & $0.8804 \pm 0.0329$ & $0.0000 \pm 0.0000$ \\
+\texttt{hierarchical\_intelligent\_no\_filter} & $0.1411 \pm 0.0491$ & $0.0417 \pm 0.0280$ & $0.1357 \pm 0.0443$ & $0.0000 \pm 0.0000$ & 1924000 & $0.8886 \pm 0.0559$ & $0.0000 \pm 0.0000$ \\
+\texttt{hierarchical\_krum} & $0.7889 \pm 0.0440$ & $0.7658 \pm 0.0648$ & $0.7942 \pm 0.0432$ & $0.2333 \pm 0.2007$ & 1924000 & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+\texttt{hierarchical\_trimmed\_mean} & $0.1094 \pm 0.0379$ & $0.0290 \pm 0.0176$ & $0.1208 \pm 0.0369$ & $0.0000 \pm 0.0000$ & 1924000 & $0.8485 \pm 0.0301$ & $0.0000 \pm 0.0000$ \\
+\texttt{proposed} & $0.8950 \pm 0.0211$ & $0.8923 \pm 0.0225$ & $0.8925 \pm 0.0229$ & $0.6090 \pm 0.0823$ & 1924000 & $0.8882 \pm 0.0152$ & $1.0000 \pm 0.0000$ \\
+\bottomrule
+\end{tabular}

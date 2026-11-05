@@ -1,0 +1,22 @@
+\begin{table*}[t]
+\caption{Performance Comparison on the Clean Benchmark (5 Independent Seeds)}
+\label{tab:results_clean}
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Method} & \textbf{Final Accuracy} & \textbf{Macro-F1} & \textbf{Balanced Acc.} & \textbf{Worst Class Acc.} & \textbf{Jain Fairness} & \textbf{Latency (ms)} \\
+\midrule
+\texttt{flat\_fedavg\_random} & $0.9061 \pm 0.0205$ & $0.9044 \pm 0.0214$ & $0.9081 \pm 0.0158$ & $0.6712 \pm 0.1458$ & $0.8804 \pm 0.0329$ & $199.4$ \\
+\texttt{hierarchical\_direct\_score} & $0.9050 \pm 0.0127$ & $0.9014 \pm 0.0131$ & $0.9032 \pm 0.0124$ & $0.6032 \pm 0.1253$ & $0.5015 \pm 0.0365$ & $114.4$ \\
+\texttt{hierarchical\_fairness\_direct\_score} & $0.9111 \pm 0.0254$ & $0.9099 \pm 0.0270$ & $0.9135 \pm 0.0210$ & $0.6871 \pm 0.1824$ & $0.8978 \pm 0.0293$ & $119.7$ \\
+\texttt{hierarchical\_intelligent\_fedavg} & $0.9039 \pm 0.0100$ & $0.9027 \pm 0.0087$ & $0.9024 \pm 0.0094$ & $0.7032 \pm 0.0333$ & $0.5151 \pm 0.0347$ & $113.9$ \\
+\texttt{hierarchical\_intelligent\_no\_fairness} & $0.9078 \pm 0.0081$ & $0.9055 \pm 0.0102$ & $0.9071 \pm 0.0098$ & $0.6857 \pm 0.1005$ & $0.5429 \pm 0.0417$ & $114.6$ \\
+\texttt{hierarchical\_intelligent\_no\_filter} & $0.9189 \pm 0.0098$ & $0.9185 \pm 0.0112$ & $0.9194 \pm 0.0114$ & $0.7718 \pm 0.0349$ & $0.8955 \pm 0.0245$ & $118.7$ \\
+\texttt{hierarchical\_krum} & $0.8200 \pm 0.0364$ & $0.8093 \pm 0.0379$ & $0.8270 \pm 0.0306$ & $0.3439 \pm 0.1950$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{hierarchical\_random\_fedavg} & $0.8839 \pm 0.0490$ & $0.8771 \pm 0.0574$ & $0.8876 \pm 0.0439$ & $0.5395 \pm 0.2955$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{hierarchical\_trimmed\_mean} & $0.8872 \pm 0.0440$ & $0.8839 \pm 0.0489$ & $0.8910 \pm 0.0396$ & $0.5882 \pm 0.2734$ & $0.8544 \pm 0.0222$ & $121.2$ \\
+\texttt{proposed} & $0.8983 \pm 0.0280$ & $0.8965 \pm 0.0307$ & $0.9000 \pm 0.0281$ & $0.6496 \pm 0.1768$ & $0.8806 \pm 0.0217$ & $120.0$ \\
+\bottomrule
+\end{tabular}
+\end{table*}

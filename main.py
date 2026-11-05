@@ -58,7 +58,7 @@ def parse_args():
     parser.add_argument("--attack-fraction", type=float, default=0.0, help="Fraction of selected clients that behave adversarially.")
     parser.add_argument(
         "--attack-type",
-        choices=["sign_flip", "gaussian_noise", "label_flip", "model_replacement"],
+        choices=["sign_flip", "gaussian_noise", "label_flip", "model_replacement", "adaptive_fang", "min_max"],
         default="sign_flip",
     )
     parser.add_argument("--attack-scale", type=float, default=5.0)
