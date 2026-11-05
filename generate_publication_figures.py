@@ -185,7 +185,7 @@ def generate_fairness_figure():
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(df["display_name"])
-    ax.set_xlabel("Jain's Fairness Index (5 Seeds, Mean $\pm$ Std)")
+    ax.set_xlabel(r"Jain's Fairness Index (5 Seeds, Mean $\pm$ Std)")
     ax.set_title("Participation Fairness Across Client Selection & Aggregation Baselines")
     ax.set_xlim(0, 1.05)
     ax.grid(axis="x", linestyle="--", alpha=0.5)
